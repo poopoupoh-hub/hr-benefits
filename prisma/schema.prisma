@@ -1,0 +1,250 @@
+// ============================================================
+// ระบบจัดการข้อมูลพนักงานและสวัสดิการ — Database schema (Prisma 7)
+// ค่าเริ่มต้นใช้ SQLite (ไฟล์ prisma/dev.db) — เปลี่ยนเป็น PostgreSQL ได้ ดู docs/GETTING-STARTED.md
+//
+// หมายเหตุการออกแบบ
+// - วันที่แบบปฏิทิน (YYYY-MM-DD) เก็บเป็น String เพื่อไม่ให้เพี้ยนตาม timezone
+// - ฟิลด์ที่เป็นรายการ/โครงสร้าง (เช่น eligibleTypes) เก็บเป็น JSON string ให้ใช้ได้ทั้ง SQLite และ PostgreSQL
+// - ไฟล์แนบเก็บบนดิสก์ (storage/uploads) — ตาราง StoredFile/ClaimAttachment เก็บเฉพาะ metadata
+// ============================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Department {
+  id        String     @id
+  code      String     @unique
+  name      String
+  positions Position[]
+  employees Employee[]
+}
+
+model Position {
+  id           String     @id
+  name         String
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  employees    Employee[]
+}
+
+model Employee {
+  id              String     @id
+  code            String     @unique
+  firstName       String
+  lastName        String
+  email           String     @unique
+  phone           String?
+  departmentId    String
+  department      Department @relation(fields: [departmentId], references: [id])
+  positionId      String
+  position        Position   @relation(fields: [positionId], references: [id])
+  managerId       String?
+  manager         Employee?  @relation("ManagerReports", fields: [managerId], references: [id])
+  reports         Employee[] @relation("ManagerReports")
+  /// permanent | probation | contract | terminated
+  employmentType  String
+  startDate       String
+  contractEndDate String?
+  /// employee | manager | hr | finance | admin
+  role            String     @default("employee")
+  active          Boolean    @default(true)
+  /// scrypt hash
+  passwordHash    String
+  /// scrypt hash
+  pinHash         String
+  delegateId      String?
+  delegateFrom    String?
+  delegateTo      String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime
+  claims          Claim[]
+}
+
+model BenefitType {
+  id              String          @id
+  code            String          @unique
+  name            String
+  description     String?
+  /// claim (พนักงานแจ้งยอด) | assigned (HR กำหนดยอด)
+  mode            String          @default("claim")
+  annualLimit     Decimal?
+  perClaimLimit   Decimal?
+  maxTimesPerYear Int?
+  /// JSON: EmploymentType[]
+  eligibleTypes   String
+  /// JSON: { [EmploymentType]: { annualLimit, perClaimLimit, maxTimesPerYear } }
+  typeOverrides   String          @default("{}")
+  /// JSON: string[]
+  requiredDocs    String
+  minServiceDays  Int?
+  claimWindowDays Int?
+  sensitive       Boolean         @default(false)
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime
+  budgets         AnnualBudget[]
+  fundRounds      FundRound[]
+  claims          Claim[]
+}
+
+model AnnualBudget {
+  id            String      @id
+  year          Int
+  benefitTypeId String
+  benefitType   BenefitType @relation(fields: [benefitTypeId], references: [id])
+  /// null = คำนวณอัตโนมัติ
+  amount        Decimal?
+
+  @@unique([year, benefitTypeId])
+}
+
+model FundRound {
+  id            String      @id
+  benefitTypeId String
+  benefitType   BenefitType @relation(fields: [benefitTypeId], references: [id])
+  name          String
+  budget        Decimal
+  openFrom      String
+  openTo        String
+  maxPerPerson  Decimal?
+  /// open | closed
+  status        String      @default("open")
+  createdAt     DateTime    @default(now())
+  claims        Claim[]
+}
+
+model Claim {
+  id             String            @id
+  no             String            @unique
+  employeeId     String
+  employee       Employee          @relation(fields: [employeeId], references: [id])
+  benefitTypeId  String
+  benefitType    BenefitType       @relation(fields: [benefitTypeId], references: [id])
+  fundRoundId    String?
+  fundRound      FundRound?        @relation(fields: [fundRoundId], references: [id])
+  amount         Decimal           @default(0)
+  assignedAmount Decimal?
+  receiptDate    String
+  note           String?
+  /// pending_hr | returned | pending_manager | approved | paid | rejected | cancelled
+  status         String
+  submittedAt    DateTime
+  filedById      String?
+  filedReason    String?
+  docsCompleteAt DateTime?
+  approverId     String?
+  approvedAt     DateTime?
+  payDate        String?
+  paidAt         DateTime?
+  paidById       String?
+  paymentRef     String?
+  rejectReason   String?
+  returnReason   String?
+  attachments    ClaimAttachment[]
+  events         ClaimEvent[]
+
+  @@index([employeeId, benefitTypeId, status])
+  @@index([status, payDate])
+}
+
+model ClaimAttachment {
+  id         String   @id
+  claimId    String
+  claim      Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  position   Int
+  name       String
+  size       Int
+  type       String
+  docType    String
+  uploadedAt DateTime
+
+  @@index([claimId])
+}
+
+model ClaimEvent {
+  id         Int      @id @default(autoincrement())
+  claimId    String
+  claim      Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  seq        Int
+  at         DateTime
+  actorId    String
+  action     String
+  fromStatus String?
+  toStatus   String?
+  note       String?
+
+  @@index([claimId, seq])
+}
+
+/// ไฟล์จริงที่อัปโหลด (เก็บบนดิสก์ แยกจากฐานข้อมูลหลัก)
+model StoredFile {
+  id          String   @id
+  uploaderId  String
+  name        String
+  mimeType    String
+  size        Int
+  storagePath String
+  createdAt   DateTime @default(now())
+}
+
+model Holiday {
+  date String @id
+  name String
+}
+
+model Setting {
+  key   String @id
+  /// JSON
+  value String
+}
+
+model RolePermission {
+  role       String
+  permission String
+
+  @@id([role, permission])
+}
+
+/// Audit Log — append-only (ระบบไม่มีฟังก์ชันแก้ไข/ลบ)
+model AuditLog {
+  id        String   @id
+  at        DateTime
+  actorId   String?
+  actorRole String?
+  action    String
+  entity    String
+  entityId  String?
+  summary   String
+  /// JSON
+  before    String?
+  /// JSON
+  after     String?
+
+  @@index([entity, entityId])
+  @@index([at])
+}
+
+model EmailMessage {
+  id      String   @id
+  at      DateTime
+  /// JSON: string[]
+  to      String
+  subject String
+  body    String
+  event   String
+  /// sent | skipped
+  status  String
+
+  @@index([at])
+}
+
+model Counter {
+  key   String @id
+  value Int
+}

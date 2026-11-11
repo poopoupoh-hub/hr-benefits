@@ -1,0 +1,14 @@
+import "dotenv/config";
+import { defineConfig } from "prisma/config";
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: {
+    path: "prisma/migrations",
+    seed: "tsx prisma/seed.ts",
+  },
+  datasource: {
+    // ค่าเริ่มต้นเมื่อยังไม่มีไฟล์ .env (เช่น ตอน npm install ครั้งแรก)
+    url: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
+  },
+});
