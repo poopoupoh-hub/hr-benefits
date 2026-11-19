@@ -4,7 +4,6 @@ import { Page } from "@/components/AppShell";
 import { Avatar, Badge, Card, SectionTitle } from "@/components/ui";
 import { EMPLOYMENT_TYPE_LABEL, ROLE_LABEL } from "@/lib/domain/constants";
 import { dateTH } from "@/lib/format";
-import { todayLocal } from "@/lib/domain/dates";
 import type { Employee } from "@/lib/domain/types";
 import { useDB, useMe } from "@/lib/hooks";
 import { fullName } from "@/lib/services/core";
@@ -36,15 +35,13 @@ export default function OrgPage() {
   const dept = db.departments.find((d) => d.id === me.departmentId);
   const pos = db.positions.find((p) => p.id === me.positionId);
   const chain: Employee[] = [];
-  let cur = db.employees.find((e) => e.id === me.managerId);
+  let cur = db.employees.find((e) => e.id === me.supervisorId);
   while (cur && chain.length < 10) {
     chain.unshift(cur);
-    cur = db.employees.find((e) => e.id === cur!.managerId);
+    cur = db.employees.find((e) => e.id === cur!.supervisorId);
   }
-  const peers = db.employees.filter((e) => e.active && e.managerId === me.managerId && e.id !== me.id && me.managerId);
-  const reports = db.employees.filter((e) => e.active && e.managerId === me.id);
-  const mgr = db.employees.find((e) => e.id === me.managerId);
-  const del = mgr?.delegation;
+  const peers = db.employees.filter((e) => e.active && e.supervisorId === me.supervisorId && e.id !== me.id && me.supervisorId);
+  const reports = db.employees.filter((e) => e.active && e.supervisorId === me.id);
 
   return (
     <Page title="โครงสร้างองค์กร" perm="self.claim">
@@ -97,11 +94,6 @@ export default function OrgPage() {
             </div>
           ))}
         </div>
-      )}
-      {del && del.to >= todayLocal() && (
-        <p className="mt-2 text-xs text-zinc-500">
-          ผู้อนุมัติสำรอง: {fullName(db.employees.find((e) => e.id === del.employeeId))} ({dateTH(del.from)} – {dateTH(del.to)})
-        </p>
       )}
 
       {reports.length > 0 && (

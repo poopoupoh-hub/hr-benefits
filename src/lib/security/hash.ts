@@ -1,5 +1,5 @@
 /**
- * Password / PIN hashing — scrypt (node:crypto) พร้อม salt สุ่มต่อรายการ
+ * Password hashing — scrypt (node:crypto) พร้อม salt สุ่มต่อรายการ
  * รูปแบบที่เก็บ: scrypt$<salt hex>$<hash hex>
  * ใช้ได้เฉพาะฝั่งเซิร์ฟเวอร์ (และ unit test)
  */

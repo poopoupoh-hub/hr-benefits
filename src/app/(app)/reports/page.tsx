@@ -2,132 +2,97 @@
 import { Download } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Page } from "@/components/AppShell";
-import { Button, Card, SectionTitle, Select } from "@/components/ui";
+import { Button, Card, Progress, Select } from "@/components/ui";
 import { beYear, todayLocal, yearOf } from "@/lib/domain/dates";
-import { claimValue } from "@/lib/domain/rules";
+import { claimYear } from "@/lib/domain/rules";
 import { downloadCSV, money } from "@/lib/format";
-import { useCan, useDB } from "@/lib/hooks";
-import { fullName } from "@/lib/services/core";
+import { useDB } from "@/lib/hooks";
 
-const MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-
+/** รายงานยอดเบิกรวมต่อสวัสดิการต่อปี (แทนหน้าตั้งงบประมาณรายปี) — นับเฉพาะที่อนุมัติ/จ่ายแล้ว ใช้ยอดเบิกได้จริง */
 export default function Reports() {
   const db = useDB();
-  const can = useCan();
-  const [year, setYear] = useState(yearOf(todayLocal()));
-  const withNames = can("employee.view");
+  const thisYear = yearOf(todayLocal());
+  const years = useMemo(() => [...new Set([thisYear, ...db.claims.map(claimYear)])].sort((a, b) => b - a), [db.claims, thisYear]);
+  const [year, setYear] = useState(thisYear);
+  const [dept, setDept] = useState("");
 
-  const data = useMemo(() => {
-    const approved = db.claims.filter((c) => (c.status === "approved" || c.status === "paid") && c.payDate && yearOf(c.payDate) === year);
-    const v = (c: (typeof approved)[number]) => claimValue(c, db.benefitTypes.find((b) => b.id === c.benefitTypeId));
-    const byMonth = MONTHS.map((_, i) => approved.filter((c) => Number(c.payDate!.slice(5, 7)) === i + 1).reduce((s, c) => s + v(c), 0));
-    const byBenefit = db.benefitTypes.map((b) => ({ name: b.name, sum: approved.filter((c) => c.benefitTypeId === b.id).reduce((s, c) => s + v(c), 0), n: approved.filter((c) => c.benefitTypeId === b.id).length }));
-    const byDept = db.departments.map((d) => ({
-      name: d.name,
-      sum: approved.filter((c) => db.employees.find((e) => e.id === c.employeeId)?.departmentId === d.id).reduce((s, c) => s + v(c), 0),
-    }));
-    return { approved, byMonth, byBenefit, byDept, total: approved.reduce((s, c) => s + v(c), 0), paid: approved.filter((c) => c.status === "paid").reduce((s, c) => s + v(c), 0) };
-  }, [db, year]);
-  const maxM = Math.max(1, ...data.byMonth);
+  const rows = useMemo(() => {
+    const deptOf = (id: string) => db.employees.find((e) => e.id === id)?.departmentId;
+    const counted = db.claims.filter((c) => (c.status === "approved" || c.status === "paid") && claimYear(c) === year && (!dept || deptOf(c.employeeId) === dept));
+    return db.benefitTypes
+      .map((b) => {
+        const mine = counted.filter((c) => c.benefitTypeId === b.id);
+        return {
+          benefit: b,
+          count: mine.length,
+          people: new Set(mine.map((c) => c.employeeId)).size,
+          requested: mine.reduce((s, c) => s + c.amountRequested, 0),
+          total: mine.reduce((s, c) => s + c.amountApproved, 0),
+          paid: mine.filter((c) => c.status === "paid").reduce((s, c) => s + c.amountApproved, 0),
+        };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [db, year, dept]);
 
-  const exportSummary = () =>
-    downloadCSV(`benefit-summary-${beYear(year)}.csv`, [
-      ["ประเภทสวัสดิการ", "จำนวนรายการ", "ยอดอนุมัติ (บาท)"],
-      ...data.byBenefit.map((b) => [b.name, b.n, b.sum]),
-      ["รวม", data.approved.length, data.total],
-    ]);
-  const exportDetail = () =>
-    downloadCSV(`benefit-detail-${beYear(year)}.csv`, [
-      ["รอบจ่าย", "เลขที่", "รหัสพนักงาน", ...(withNames ? ["ชื่อ-นามสกุล"] : []), "แผนก", "ประเภท", "จำนวนเงิน", "สถานะ", "อ้างอิงการจ่าย"],
-      ...data.approved.map((c) => {
-        const e = db.employees.find((x) => x.id === c.employeeId);
-        const b = db.benefitTypes.find((x) => x.id === c.benefitTypeId);
-        return [c.payDate, c.no, e?.code, ...(withNames ? [fullName(e)] : []), db.departments.find((d) => d.id === e?.departmentId)?.code, b?.name, claimValue(c, b), c.status === "paid" ? "จ่ายแล้ว" : "รอจ่าย", c.paymentRef ?? ""];
-      }),
+  const grand = rows.reduce((s, r) => s + r.total, 0);
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  const deptName = db.departments.find((d) => d.id === dept)?.name ?? "ทุกฝ่าย";
+
+  const exportCsv = () =>
+    downloadCSV(`benefit-total-${beYear(year)}${dept ? `-${dept}` : ""}.csv`, [
+      ["ปี", "ฝ่าย", "ประเภทสวัสดิการ", "จำนวนรายการ", "จำนวนคน", "ยอดขอ", "ยอดอนุมัติ", "จ่ายแล้ว"],
+      ...rows.map((r) => [beYear(year), deptName, r.benefit.name, r.count, r.people, r.requested, r.total, r.paid]),
+      ["", "", "รวม", rows.reduce((s, r) => s + r.count, 0), "", rows.reduce((s, r) => s + r.requested, 0), grand, rows.reduce((s, r) => s + r.paid, 0)],
     ]);
 
   return (
-    <Page title="รายงานสวัสดิการ" perm="report.export" wide>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <Page title="รายงานยอดเบิก" perm="report.view" wide>
+      <div className="flex flex-wrap items-center gap-2">
         <Select value={year} onChange={(e) => setYear(Number(e.target.value))} className="w-36" aria-label="ปี">
-          {[yearOf(todayLocal()) - 1, yearOf(todayLocal()), yearOf(todayLocal()) + 1].map((y) => (
+          {years.map((y) => (
             <option key={y} value={y}>
               ปี {beYear(y)}
             </option>
           ))}
         </Select>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" icon={<Download className="size-4" />} onClick={exportSummary}>
-            สรุปตามประเภท
-          </Button>
-          <Button size="sm" icon={<Download className="size-4" />} onClick={exportDetail}>
-            รายละเอียดตามรอบจ่าย
-          </Button>
-        </div>
-      </div>
-      <p className="mt-2 text-xs text-zinc-500">
-        นับตามรอบจ่ายในปีที่เลือก (อนุมัติแล้ว + จ่ายแล้ว){!withNames && " · ไฟล์ส่งออกไม่มีชื่อพนักงาน (PDPA)"}
-      </p>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card className="p-4">
-          <p className="text-xs text-zinc-500">ยอดอนุมัติทั้งปี</p>
-          <p className="mt-1 text-lg font-semibold tabular">{money(data.total)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-zinc-500">จ่ายแล้ว</p>
-          <p className="mt-1 text-lg font-semibold text-emerald-600 tabular">{money(data.paid)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-zinc-500">รอจ่าย</p>
-          <p className="mt-1 text-lg font-semibold text-violet-600 tabular">{money(data.total - data.paid)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-zinc-500">จำนวนรายการ</p>
-          <p className="mt-1 text-lg font-semibold tabular">{data.approved.length}</p>
-        </Card>
-      </div>
-
-      <SectionTitle className="mt-6">ยอดจ่ายรายเดือน (ตามรอบจ่าย)</SectionTitle>
-      <Card className="p-4">
-        <div className="flex h-44 items-end gap-1.5">
-          {data.byMonth.map((v, i) => (
-            <div key={i} className="group flex h-full flex-1 flex-col items-center justify-end gap-1">
-              <span className="text-[10px] text-zinc-500 opacity-0 group-hover:opacity-100 tabular">{v ? money(v, false) : ""}</span>
-              <div className="w-full rounded-t-md bg-brand-500/85 transition group-hover:bg-brand-600" style={{ height: `${(v / maxM) * 100}%`, minHeight: v ? 4 : 0 }} title={`${MONTHS[i]}: ${money(v)}`} />
-              <span className="text-[10px] text-zinc-500">{MONTHS[i]}</span>
-            </div>
+        <Select value={dept} onChange={(e) => setDept(e.target.value)} className="w-48" aria-label="ฝ่าย">
+          <option value="">ทุกฝ่าย</option>
+          {db.departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
           ))}
-        </div>
-      </Card>
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {[
-          ["แยกตามประเภทสวัสดิการ", data.byBenefit],
-          ["แยกตามแผนก", data.byDept],
-        ].map(([title, list]) => {
-          const l = list as { name: string; sum: number }[];
-          const max = Math.max(1, ...l.map((x) => x.sum));
-          return (
-            <div key={title as string}>
-              <SectionTitle className="mt-0">{title as string}</SectionTitle>
-              <Card className="space-y-3 p-4">
-                {l.map((x) => (
-                  <div key={x.name}>
-                    <div className="flex justify-between text-sm">
-                      <span>{x.name}</span>
-                      <span className="font-medium tabular">{money(x.sum)}</span>
-                    </div>
-                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-100">
-                      <div className="h-full rounded-full bg-ink-800" style={{ width: `${(x.sum / max) * 100}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </Card>
-            </div>
-          );
-        })}
+        </Select>
+        <Button variant="secondary" size="sm" className="ml-auto" icon={<Download className="size-4" />} onClick={exportCsv}>
+          Export CSV
+        </Button>
       </div>
+
+      <div className="mt-4 rounded-3xl bg-ink-900 p-5 text-white">
+        <p className="text-sm text-zinc-400">
+          ยอดเบิกรวม (อนุมัติ + จ่ายแล้ว) ปี {beYear(year)} · {deptName}
+        </p>
+        <p className="mt-1 text-3xl font-semibold tabular">{money(grand)}</p>
+      </div>
+
+      <Card className="mt-4 divide-y divide-zinc-100">
+        {rows.map((r, i) => (
+          <div key={r.benefit.id} className="p-4 text-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="font-medium">
+                <span className="mr-2 text-zinc-400">{i + 1}.</span>
+                {r.benefit.name} <span className="text-xs font-normal text-zinc-400">{r.benefit.category}</span>
+              </p>
+              <p className="font-semibold tabular">{money(r.total)}</p>
+            </div>
+            <Progress value={(r.total / max) * 100} className="mt-2" />
+            <p className="mt-1.5 text-xs text-zinc-500">
+              {r.count} รายการ · {r.people} คน · ยอดขอ {money(r.requested)} · จ่ายแล้ว {money(r.paid)}
+            </p>
+          </div>
+        ))}
+      </Card>
+      <p className="mt-3 text-xs text-zinc-400">นับตามปีของวันที่ในใบเสร็จ · ใช้ยอดเบิกได้จริง (หลังตัดตามวงเงิน)</p>
     </Page>
   );
 }

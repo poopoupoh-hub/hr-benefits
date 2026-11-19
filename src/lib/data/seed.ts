@@ -1,10 +1,10 @@
 /**
  * ข้อมูลตั้งต้น (Mock data) — ใช้เมื่อเปิดระบบครั้งแรก หรือกด "รีเซ็ตข้อมูลเดโม"
- * รหัสผ่านทุกบัญชี: 1234 / PIN: 1234
+ * รหัสผ่านทุกบัญชี: 1234 (username = รหัสพนักงาน เช่น EMP-0001)
  */
 import { DEFAULT_RBAC, STATUS_LABEL } from "../domain/constants";
 import { computePayDate } from "../domain/rules";
-import type { AttachmentMeta, AuditLog, BenefitType, Claim, ClaimEvent, Database, Employee, Settings } from "../domain/types";
+import type { AttachmentMeta, AuditLog, BenefitLimit, BenefitType, Claim, ClaimEvent, Database, Employee, Payment, Settings } from "../domain/types";
 import { hashSecret } from "../security/hash";
 
 export { DB_VERSION } from "../domain/constants";
@@ -20,7 +20,7 @@ function emp(
   lastName: string,
   departmentId: string,
   positionId: string,
-  managerId: string | null,
+  supervisorId: string | null,
   employmentType: Employee["employmentType"],
   startDate: string,
   role: Employee["role"],
@@ -35,15 +35,13 @@ function emp(
     phone: "08" + code.replace(/\D/g, "").padStart(8, "1"),
     departmentId,
     positionId,
-    managerId,
+    supervisorId,
     employmentType,
     startDate,
     contractEndDate: null,
     role,
     active: true,
     passwordHash: pw,
-    pinHash: pw,
-    delegation: null,
     createdAt: T0,
     updatedAt: T0,
     ...extra,
@@ -71,7 +69,6 @@ export const SEED_SETTINGS: Settings = {
     { date: "2026-12-31", name: "วันสิ้นปี" },
     { date: "2027-01-01", name: "วันขึ้นปีใหม่" },
   ],
-  orgBudgetMode: "warn",
   email: {
     enabled: true,
     provider: "mock",
@@ -85,98 +82,99 @@ export const SEED_SETTINGS: Settings = {
   orgName: "บริษัท จัดการข้อมูลพนักงานและสวัสดิการ จำกัด",
 };
 
+const benefit = (b: Omit<BenefitType, "createdAt" | "updatedAt" | "active">): BenefitType => ({ ...b, active: true, createdAt: T0, updatedAt: T0 });
+
 const benefits: BenefitType[] = [
-  {
+  benefit({
     id: "b-med",
     code: "MED",
     name: "ค่ารักษาพยาบาล",
+    category: "สุขภาพ",
     description: "ค่ารักษาพยาบาลผู้ป่วยนอก/ใน ที่ประกันกลุ่มไม่ครอบคลุม",
     mode: "claim",
-    annualLimit: 20000,
-    perClaimLimit: null,
-    maxTimesPerYear: null,
     eligibleTypes: ["permanent", "contract"],
-    typeOverrides: { contract: { annualLimit: 10000 } },
     requiredDocs: ["ใบเสร็จ", "ใบรับรองแพทย์"],
     minServiceDays: null,
     claimWindowDays: 90,
     sensitive: true,
-    active: true,
-    createdAt: T0,
-    updatedAt: T0,
-  },
-  {
+  }),
+  benefit({
     id: "b-opd",
     code: "OPD",
     name: "ประกันส่วนเกิน",
+    category: "สุขภาพ",
     description: "ส่วนเกินจากวงเงินประกันกลุ่ม OPD",
     mode: "claim",
-    annualLimit: null,
-    perClaimLimit: 1000,
-    maxTimesPerYear: 30,
     eligibleTypes: ["permanent"],
     requiredDocs: ["ใบเสร็จ"],
     minServiceDays: null,
     claimWindowDays: 60,
     sensitive: true,
-    active: true,
-    createdAt: T0,
-    updatedAt: T0,
-  },
-  {
+  }),
+  benefit({
     id: "b-den",
     code: "DEN",
     name: "ค่าทันตกรรม",
+    category: "สุขภาพ",
     description: "ขูดหินปูน อุดฟัน ถอนฟัน",
     mode: "claim",
-    annualLimit: 3000,
-    perClaimLimit: null,
-    maxTimesPerYear: null,
     eligibleTypes: ["permanent", "contract"],
     requiredDocs: ["ใบเสร็จ"],
     minServiceDays: null,
     claimWindowDays: 90,
     sensitive: true,
-    active: true,
-    createdAt: T0,
-    updatedAt: T0,
-  },
-  {
+  }),
+  benefit({
     id: "b-edu",
     code: "EDU",
     name: "ค่าเล่าเรียนบุตร",
+    category: "การศึกษา",
     description: "ค่าเล่าเรียนบุตรตามใบเสร็จสถานศึกษา",
     mode: "claim",
-    annualLimit: 10000,
-    perClaimLimit: null,
-    maxTimesPerYear: null,
     eligibleTypes: ["permanent"],
     requiredDocs: ["ใบเสร็จ", "สำเนาสูติบัตรบุตร"],
     minServiceDays: 365,
     claimWindowDays: null,
     sensitive: false,
-    active: true,
-    createdAt: T0,
-    updatedAt: T0,
-  },
-  {
+  }),
+  benefit({
     id: "b-dis",
     code: "DIS",
     name: "เงินช่วยเหลือภัยพิบัติ",
+    category: "ช่วยเหลือ",
     description: "HR เปิดรอบงบเมื่อเกิดภัยพิบัติ และกำหนดเงินช่วยเหลือตามความเสียหาย",
     mode: "assigned",
-    annualLimit: null,
-    perClaimLimit: null,
-    maxTimesPerYear: 1,
     eligibleTypes: ["permanent", "probation", "contract"],
     requiredDocs: ["ใบแจ้งความ / หนังสือรับรองภัยพิบัติ", "รูปถ่ายความเสียหาย"],
     minServiceDays: null,
     claimWindowDays: null,
     sensitive: false,
-    active: true,
-    createdAt: T0,
-    updatedAt: T0,
-  },
+  }),
+];
+
+/** วงเงินตามระดับตำแหน่ง (ตัวอย่าง — ต้องยืนยันกับนโยบายจริง) */
+const limit = (id: string, benefitId: string, minLevel: number, maxLevel: number, l: Pick<BenefitLimit, "perClaim" | "perYear" | "maxCount">): BenefitLimit => ({
+  id,
+  benefitId,
+  minLevel,
+  maxLevel,
+  perClaim: l.perClaim ?? null,
+  perYear: l.perYear ?? null,
+  maxCount: l.maxCount ?? null,
+  effectiveFrom: "2026-01-01",
+  createdAt: T0,
+});
+
+const benefitLimits: BenefitLimit[] = [
+  limit("lim-med-1", "b-med", 1, 2, { perYear: 20000 }),
+  limit("lim-med-3", "b-med", 3, 3, { perYear: 40000 }),
+  limit("lim-med-4", "b-med", 4, 4, { perYear: 80000 }),
+  limit("lim-opd-1", "b-opd", 1, 3, { perClaim: 1000, maxCount: 30 }),
+  limit("lim-opd-4", "b-opd", 4, 4, { perClaim: 2000, maxCount: 30 }),
+  limit("lim-den-1", "b-den", 1, 2, { perYear: 3000 }),
+  limit("lim-den-3", "b-den", 3, 4, { perYear: 6000 }),
+  limit("lim-edu-1", "b-edu", 1, 4, { perYear: 10000 }),
+  limit("lim-dis-1", "b-dis", 1, 4, { maxCount: 1 }),
 ];
 
 function att(id: string, name: string, docType: string, at: string): AttachmentMeta {
@@ -189,30 +187,30 @@ function ev(at: string, actorId: string, action: ClaimEvent["action"], fromStatu
 
 export function createSeed(): Database {
   const employees: Employee[] = [
-    emp("e-0040", "EMP-0040", "ประเสริฐ", "มั่นคง", "d-mgt", "p-dir", null, "permanent", "2015-04-01", "manager"),
-    emp("e-0020", "EMP-0020", "ธนา", "หัวหน้า", "d-it", "p-itm", "e-0040", "permanent", "2018-06-01", "manager"),
-    emp("e-0001", "EMP-0001", "สมชาย", "ใจดี", "d-it", "p-dev", "e-0020", "permanent", "2022-03-01", "employee"),
-    emp("e-0002", "EMP-0002", "สุดา", "รักงาน", "d-it", "p-des", "e-0020", "probation", "2026-08-15", "employee"),
-    emp("e-0003", "EMP-0003", "ปิติ", "ขยัน", "d-it", "p-sup", "e-0020", "contract", "2025-04-01", "employee", {
-      contractEndDate: "2027-03-31",
-    }),
-    emp("e-0004", "EMP-0004", "มานี", "มีสุข", "d-it", "p-qa", "e-0020", "permanent", "2020-11-16", "employee"),
-    emp("e-0010", "EMP-0010", "วิภา", "บุคคล", "d-hr", "p-hro", "e-0040", "permanent", "2019-01-07", "hr"),
-    emp("e-0030", "EMP-0030", "กมล", "บัญชี", "d-fin", "p-acc", "e-0040", "permanent", "2021-02-01", "finance"),
-    emp("e-0050", "EMP-0050", "ศิริ", "ผู้ดูแล", "d-it", "p-adm", "e-0020", "permanent", "2020-05-11", "admin"),
-    emp("e-0005", "EMP-0005", "วีระ", "เคยอยู่", "d-it", "p-dev", "e-0020", "terminated", "2021-07-01", "employee", {
-      active: false,
-    }),
+    emp("e-0040", "EMP-0040", "ประเสริฐ", "มั่นคง", "d-mgt", "p-l4", null, "permanent", "2015-04-01", "employee"),
+    emp("e-0020", "EMP-0020", "ธนา", "หัวหน้า", "d-it", "p-l3", "e-0040", "permanent", "2018-06-01", "employee"),
+    emp("e-0001", "EMP-0001", "สมชาย", "ใจดี", "d-it", "p-l1", "e-0020", "permanent", "2022-03-01", "employee"),
+    emp("e-0002", "EMP-0002", "สุดา", "รักงาน", "d-it", "p-l1", "e-0020", "probation", "2026-08-15", "employee"),
+    emp("e-0003", "EMP-0003", "ปิติ", "ขยัน", "d-it", "p-l1", "e-0020", "contract", "2025-04-01", "employee", { contractEndDate: "2027-03-31" }),
+    emp("e-0004", "EMP-0004", "มานี", "มีสุข", "d-it", "p-l2", "e-0020", "permanent", "2020-11-16", "employee"),
+    emp("e-0011", "EMP-0011", "ประภา", "หัวหน้าบุคคล", "d-hr", "p-l3", "e-0040", "permanent", "2016-02-01", "hr_head"),
+    emp("e-0010", "EMP-0010", "วิภา", "บุคคล", "d-hr", "p-l1", "e-0011", "permanent", "2019-01-07", "hr"),
+    emp("e-0030", "EMP-0030", "กมล", "บัญชี", "d-fin", "p-l1", "e-0040", "permanent", "2021-02-01", "finance"),
+    emp("e-0050", "EMP-0050", "ศิริ", "ผู้ดูแล", "d-it", "p-l2", "e-0020", "permanent", "2020-05-11", "admin"),
+    emp("e-0005", "EMP-0005", "วีระ", "เคยอยู่", "d-it", "p-l1", "e-0020", "terminated", "2021-07-01", "employee", { active: false }),
   ];
 
   const S = SEED_SETTINGS;
+  const claim = (c: Omit<Claim, "amountApproved"> & { amountApproved?: number }): Claim => ({ amountApproved: c.amountRequested, ...c });
   const claims: Claim[] = [
-    {
+    claim({
       id: "c-0001",
       no: "CLM-2569-0001",
       employeeId: "e-0001",
       benefitTypeId: "b-med",
-      amount: 2500,
+      receiptNo: "RC-55012",
+      vendorName: "โรงพยาบาลกรุงเทพ",
+      amountRequested: 2500,
       receiptDate: "2026-08-31",
       note: "ตรวจรักษาไข้หวัด",
       attachments: [
@@ -221,74 +219,72 @@ export function createSeed(): Database {
       ],
       status: "paid",
       submittedAt: "2026-09-01T09:00:00+07:00",
-      docsCompleteAt: "2026-09-02T11:00:00+07:00",
-      approverId: "e-0020",
-      approvedAt: "2026-09-03T10:00:00+07:00",
-      payDate: computePayDate("2026-09-03", S),
-      paidAt: "2026-09-30T15:00:00+07:00",
-      paidById: "e-0030",
-      paymentRef: "PAY-2569-09",
+      decidedById: "e-0010",
+      decidedAt: "2026-09-02T11:00:00+07:00",
+      payDate: computePayDate("2026-09-02", S),
       history: [
         ev("2026-09-01T09:00:00+07:00", "e-0001", "submit", undefined, "pending_hr"),
-        ev("2026-09-02T11:00:00+07:00", "e-0010", "hr_pass", "pending_hr", "pending_manager", "เอกสารครบ"),
-        ev("2026-09-03T10:00:00+07:00", "e-0020", "approve", "pending_manager", "approved"),
-        ev("2026-09-30T15:00:00+07:00", "e-0030", "mark_paid", "approved", "paid", "PAY-2569-09"),
+        ev("2026-09-02T11:00:00+07:00", "e-0010", "approve", "pending_hr", "approved", "เอกสารครบ"),
+        ev("2026-09-30T15:00:00+07:00", "e-0030", "mark_paid", "approved", "paid", "โอนเงิน · PAY-2569-09-001"),
       ],
-    },
-    {
+    }),
+    claim({
       id: "c-0002",
       no: "CLM-2569-0002",
       employeeId: "e-0001",
       benefitTypeId: "b-opd",
-      amount: 800,
+      receiptNo: "INV-2210",
+      vendorName: "คลินิกเวชกรรมสุขใจ",
+      amountRequested: 800,
       receiptDate: "2026-10-21",
       attachments: [att("seed-a3", "receipt_opd.jpg", "ใบเสร็จ", "2026-10-21T10:10:00+07:00")],
-      status: "pending_manager",
+      status: "pending_hr",
       submittedAt: "2026-10-21T10:10:00+07:00",
-      docsCompleteAt: "2026-10-22T09:30:00+07:00",
-      history: [
-        ev("2026-10-21T10:10:00+07:00", "e-0001", "submit", undefined, "pending_hr"),
-        ev("2026-10-22T09:30:00+07:00", "e-0010", "hr_pass", "pending_hr", "pending_manager", "เอกสารครบ"),
-      ],
-    },
-    {
+      history: [ev("2026-10-21T10:10:00+07:00", "e-0001", "submit", undefined, "pending_hr")],
+    }),
+    claim({
       id: "c-0003",
       no: "CLM-2569-0003",
       employeeId: "e-0004",
       benefitTypeId: "b-den",
-      amount: 1200,
+      receiptNo: "DT-0098",
+      vendorName: "คลินิกทันตกรรมยิ้มสวย",
+      amountRequested: 1200,
       receiptDate: "2026-10-28",
       attachments: [att("seed-a4", "dental_receipt.jpg", "ใบเสร็จ", "2026-10-28T13:00:00+07:00")],
       status: "approved",
       submittedAt: "2026-10-28T13:00:00+07:00",
-      docsCompleteAt: "2026-10-30T10:00:00+07:00",
-      approverId: "e-0020",
-      approvedAt: "2026-11-02T09:15:00+07:00",
+      decidedById: "e-0010",
+      decidedAt: "2026-11-02T09:15:00+07:00",
       payDate: computePayDate("2026-11-02", S),
       history: [
         ev("2026-10-28T13:00:00+07:00", "e-0004", "submit", undefined, "pending_hr"),
-        ev("2026-10-30T10:00:00+07:00", "e-0010", "hr_pass", "pending_hr", "pending_manager", "เอกสารครบ"),
-        ev("2026-11-02T09:15:00+07:00", "e-0020", "approve", "pending_manager", "approved"),
+        ev("2026-11-02T09:15:00+07:00", "e-0010", "approve", "pending_hr", "approved", "เอกสารครบ"),
       ],
-    },
-    {
+    }),
+    claim({
       id: "c-0004",
       no: "CLM-2569-0004",
       employeeId: "e-0001",
       benefitTypeId: "b-opd",
-      amount: 800,
+      receiptNo: "INV-2287",
+      vendorName: "คลินิกเวชกรรมสุขใจ",
+      amountRequested: 1500,
+      amountApproved: 1000,
       receiptDate: "2026-10-29",
       attachments: [att("seed-a5", "receipt.jpg", "ใบเสร็จ", "2026-10-29T14:25:00+07:00")],
       status: "pending_hr",
       submittedAt: "2026-10-29T14:25:00+07:00",
-      history: [ev("2026-10-29T14:25:00+07:00", "e-0001", "submit", undefined, "pending_hr")],
-    },
-    {
+      history: [ev("2026-10-29T14:25:00+07:00", "e-0001", "submit", undefined, "pending_hr", "ยอดถูกตัด: เกินวงเงินต่อครั้ง")],
+    }),
+    claim({
       id: "c-0005",
       no: "CLM-2569-0005",
       employeeId: "e-0003",
       benefitTypeId: "b-med",
-      amount: 1800,
+      receiptNo: "RC-77120",
+      vendorName: "โรงพยาบาลรามา",
+      amountRequested: 1800,
       receiptDate: "2026-10-18",
       attachments: [
         att("seed-a6", "receipt_clinic.jpg", "ใบเสร็จ", "2026-10-19T08:40:00+07:00"),
@@ -299,15 +295,17 @@ export function createSeed(): Database {
       returnReason: "ใบรับรองแพทย์ไม่ชัด กรุณาแนบใหม่",
       history: [
         ev("2026-10-19T08:40:00+07:00", "e-0003", "submit", undefined, "pending_hr"),
-        ev("2026-10-20T15:00:00+07:00", "e-0010", "hr_return", "pending_hr", "returned", "ใบรับรองแพทย์ไม่ชัด กรุณาแนบใหม่"),
+        ev("2026-10-20T15:00:00+07:00", "e-0010", "return", "pending_hr", "returned", "ใบรับรองแพทย์ไม่ชัด กรุณาแนบใหม่"),
       ],
-    },
-    {
+    }),
+    claim({
       id: "c-0006",
       no: "CLM-2569-0006",
       employeeId: "e-0010",
       benefitTypeId: "b-edu",
-      amount: 6000,
+      receiptNo: "SCH-2569-114",
+      vendorName: "โรงเรียนอนุบาลดวงใจ",
+      amountRequested: 6000,
       receiptDate: "2026-05-25",
       attachments: [
         att("seed-a8", "school_receipt.pdf", "ใบเสร็จ", "2026-05-26T09:00:00+07:00"),
@@ -315,25 +313,23 @@ export function createSeed(): Database {
       ],
       status: "paid",
       submittedAt: "2026-05-26T09:00:00+07:00",
-      docsCompleteAt: "2026-05-27T10:00:00+07:00",
-      approverId: "e-0040",
-      approvedAt: "2026-06-02T11:00:00+07:00",
-      payDate: computePayDate("2026-06-02", S),
-      paidAt: "2026-06-30T14:00:00+07:00",
-      paidById: "e-0030",
-      paymentRef: "PAY-2569-06",
+      decidedById: "e-0011",
+      decidedAt: "2026-05-27T10:00:00+07:00",
+      payDate: computePayDate("2026-05-27", S),
       history: [
-        ev("2026-05-26T09:00:00+07:00", "e-0010", "submit", undefined, "pending_manager", "ผู้ยื่นเป็น HR — ข้ามขั้น HR ตรวจ ส่งหัวหน้าตรวจเอกสารและอนุมัติ"),
-        ev("2026-06-02T11:00:00+07:00", "e-0040", "approve", "pending_manager", "approved"),
-        ev("2026-06-30T14:00:00+07:00", "e-0030", "mark_paid", "approved", "paid", "PAY-2569-06"),
+        ev("2026-05-26T09:00:00+07:00", "e-0010", "submit", undefined, "pending_hr"),
+        ev("2026-05-27T10:00:00+07:00", "e-0011", "approve", "pending_hr", "approved", "HR ยื่นเอง — หัวหน้า HR เป็นผู้พิจารณา"),
+        ev("2026-05-29T14:00:00+07:00", "e-0030", "mark_paid", "approved", "paid", "เช็ค · CHQ-0001452"),
       ],
-    },
-    {
+    }),
+    claim({
       id: "c-0007",
       no: "CLM-2569-0007",
       employeeId: "e-0004",
       benefitTypeId: "b-med",
-      amount: 4000,
+      receiptNo: "AE-3301",
+      vendorName: "คลินิกความงามสวยใส",
+      amountRequested: 4000,
       receiptDate: "2026-09-20",
       attachments: [
         att("seed-a10", "receipt_aesthetic.pdf", "ใบเสร็จ", "2026-09-21T09:00:00+07:00"),
@@ -341,22 +337,23 @@ export function createSeed(): Database {
       ],
       status: "rejected",
       submittedAt: "2026-09-21T09:00:00+07:00",
-      docsCompleteAt: "2026-09-22T10:00:00+07:00",
+      decidedById: "e-0010",
+      decidedAt: "2026-09-22T10:00:00+07:00",
       rejectReason: "เป็นค่าใช้จ่ายด้านความงาม ไม่อยู่ในเงื่อนไขสวัสดิการ",
       history: [
         ev("2026-09-21T09:00:00+07:00", "e-0004", "submit", undefined, "pending_hr"),
-        ev("2026-09-22T10:00:00+07:00", "e-0010", "hr_pass", "pending_hr", "pending_manager"),
-        ev("2026-09-23T16:20:00+07:00", "e-0020", "reject", "pending_manager", "rejected", "เป็นค่าใช้จ่ายด้านความงาม ไม่อยู่ในเงื่อนไขสวัสดิการ"),
+        ev("2026-09-22T10:00:00+07:00", "e-0010", "reject", "pending_hr", "rejected", "เป็นค่าใช้จ่ายด้านความงาม ไม่อยู่ในเงื่อนไขสวัสดิการ"),
       ],
-    },
-    {
+    }),
+    claim({
       id: "c-0008",
       no: "CLM-2569-0008",
       employeeId: "e-0003",
       benefitTypeId: "b-dis",
       fundRoundId: "f-flood-2569",
-      amount: 0,
-      assignedAmount: null,
+      receiptNo: "",
+      vendorName: "",
+      amountRequested: 0,
       receiptDate: "2026-10-25",
       note: "บ้านพักน้ำท่วมชั้นล่าง เครื่องใช้ไฟฟ้าเสียหาย",
       attachments: [
@@ -365,11 +362,75 @@ export function createSeed(): Database {
       ],
       status: "pending_hr",
       submittedAt: "2026-10-26T10:00:00+07:00",
-      filedById: "e-0010",
-      filedReason: "พนักงานอยู่ระหว่างย้ายที่พัก ไม่สะดวกเข้าระบบ",
-      history: [ev("2026-10-26T10:00:00+07:00", "e-0010", "submit", undefined, "pending_hr", "HR ยื่นแทน: พนักงานอยู่ระหว่างย้ายที่พัก ไม่สะดวกเข้าระบบ")],
-    },
+      history: [ev("2026-10-26T10:00:00+07:00", "e-0003", "submit", undefined, "pending_hr")],
+    }),
+    claim({
+      id: "c-0009",
+      no: "CLM-2569-0009",
+      employeeId: "e-0003",
+      benefitTypeId: "b-den",
+      receiptNo: "DT-0098",
+      vendorName: "คลินิกทันตกรรมยิ้มสวย",
+      amountRequested: 900,
+      receiptDate: "2026-11-01",
+      attachments: [att("seed-a14", "dental_piti.jpg", "ใบเสร็จ", "2026-11-02T09:00:00+07:00")],
+      status: "pending_hr",
+      submittedAt: "2026-11-02T09:00:00+07:00",
+      history: [ev("2026-11-02T09:00:00+07:00", "e-0003", "submit", undefined, "pending_hr")],
+    }),
+    claim({
+      id: "c-0010",
+      no: "CLM-2569-0010",
+      employeeId: "e-0010",
+      benefitTypeId: "b-opd",
+      receiptNo: "INV-3301",
+      vendorName: "คลินิกเวชกรรมสุขใจ",
+      amountRequested: 900,
+      receiptDate: "2026-11-03",
+      attachments: [att("seed-a15", "receipt_wipa.jpg", "ใบเสร็จ", "2026-11-04T08:00:00+07:00")],
+      status: "pending_hr",
+      submittedAt: "2026-11-04T08:00:00+07:00",
+      history: [ev("2026-11-04T08:00:00+07:00", "e-0010", "submit", undefined, "pending_hr")],
+    }),
   ];
+
+  const payments: Payment[] = [
+    { claimId: "c-0001", method: "transfer", paidAt: "2026-09-30", transferRef: "PAY-2569-09-001", recordedBy: "e-0030", recordedAt: "2026-09-30T15:00:00+07:00" },
+    { claimId: "c-0006", method: "cheque", paidAt: "2026-05-29", chequeNo: "CHQ-0001452", chequeDate: "2026-05-29", recordedBy: "e-0030", recordedAt: "2026-05-29T14:00:00+07:00" },
+  ];
+
+  // ธนา ใช้สิทธิ์ประกันส่วนเกินครบ 30 ครั้งแล้ว (ไว้เดโมว่ายื่นเพิ่มไม่ได้)
+  for (let i = 0; i < 30; i++) {
+    const m = String(1 + (i % 10)).padStart(2, "0");
+    const day = String(2 + Math.floor(i / 10) * 9).padStart(2, "0");
+    const date = `2026-${m}-${day}`;
+    const id = `c-t${String(i + 1).padStart(2, "0")}`;
+    const ref = `PAY-OPD-${String(i + 1).padStart(3, "0")}`;
+    claims.push(
+      claim({
+        id,
+        no: `CLM-2569-${String(11 + i).padStart(4, "0")}`,
+        employeeId: "e-0020",
+        benefitTypeId: "b-opd",
+        receiptNo: `OPD-T${i + 1}`,
+        vendorName: "คลินิกเวชกรรมสุขใจ",
+        amountRequested: 500,
+        receiptDate: date,
+        attachments: [att(`seed-t${i + 1}`, `opd_${i + 1}.jpg`, "ใบเสร็จ", `${date}T09:00:00+07:00`)],
+        status: "paid",
+        submittedAt: `${date}T09:00:00+07:00`,
+        decidedById: "e-0010",
+        decidedAt: `${date}T15:00:00+07:00`,
+        payDate: computePayDate(date, S),
+        history: [
+          ev(`${date}T09:00:00+07:00`, "e-0020", "submit", undefined, "pending_hr"),
+          ev(`${date}T15:00:00+07:00`, "e-0010", "approve", "pending_hr", "approved"),
+          ev(`${date}T16:00:00+07:00`, "e-0030", "mark_paid", "approved", "paid", `โอนเงิน · ${ref}`),
+        ],
+      }),
+    );
+    payments.push({ claimId: id, method: "transfer", paidAt: date, transferRef: ref, recordedBy: "e-0030", recordedAt: `${date}T16:00:00+07:00` });
+  }
 
   const auditLogs: AuditLog[] = [
     {
@@ -380,7 +441,7 @@ export function createSeed(): Database {
       action: "update",
       entity: "employee",
       entityId: "e-0003",
-      summary: "แก้ไขข้อมูลพนักงาน EMP-0003 ปิติ ขยัน (วันหมดสัญญา)",
+      summary: "แก้ไขข้อมูลพนักงาน EMP-0003 ปิติ ขยัน (contractEndDate)",
       before: { contractEndDate: "2026-12-31" },
       after: { contractEndDate: "2027-03-31" },
     },
@@ -404,7 +465,7 @@ export function createSeed(): Database {
         at: h.at,
         actorId: h.actorId,
         actorRole: employees.find((e) => e.id === h.actorId)?.role ?? null,
-        action: h.action,
+        action: h.action === "mark_paid" ? "record_payment" : h.action,
         entity: h.action === "mark_paid" ? "payment" : "claim",
         entityId: c.id,
         summary: `${c.no}: ${h.fromStatus ? STATUS_LABEL[h.fromStatus] : "ยื่นคำขอ"} → ${h.toStatus ? STATUS_LABEL[h.toStatus] : "-"}`,
@@ -417,24 +478,19 @@ export function createSeed(): Database {
     version: DB_VERSION,
     departments: [
       { id: "d-mgt", code: "MGT", name: "บริหาร" },
-      { id: "d-it", code: "IT", name: "IT" },
-      { id: "d-hr", code: "HR", name: "HR" },
-      { id: "d-fin", code: "FIN", name: "Finance" },
+      { id: "d-it", code: "IT", name: "เทคโนโลยีสารสนเทศ" },
+      { id: "d-hr", code: "HR", name: "ทรัพยากรบุคคล" },
+      { id: "d-fin", code: "FIN", name: "บัญชีและการเงิน" },
     ],
     positions: [
-      { id: "p-dir", name: "ผู้อำนวยการ", departmentId: "d-mgt" },
-      { id: "p-itm", name: "IT Manager", departmentId: "d-it" },
-      { id: "p-dev", name: "Developer", departmentId: "d-it" },
-      { id: "p-des", name: "Designer", departmentId: "d-it" },
-      { id: "p-sup", name: "Support", departmentId: "d-it" },
-      { id: "p-qa", name: "QA Engineer", departmentId: "d-it" },
-      { id: "p-adm", name: "System Admin", departmentId: "d-it" },
-      { id: "p-hro", name: "HR Officer", departmentId: "d-hr" },
-      { id: "p-acc", name: "Accountant", departmentId: "d-fin" },
+      { id: "p-l1", name: "เจ้าหน้าที่", level: 1 },
+      { id: "p-l2", name: "ผู้ช่วยผู้จัดการ", level: 2 },
+      { id: "p-l3", name: "ผู้จัดการ", level: 3 },
+      { id: "p-l4", name: "ผู้บริหาร", level: 4 },
     ],
     employees,
     benefitTypes: benefits,
-    budgets: [],
+    benefitLimits,
     fundRounds: [
       {
         id: "f-flood-2569",
@@ -449,6 +505,8 @@ export function createSeed(): Database {
       },
     ],
     claims,
+    payments,
+    changeRequests: [],
     settings: S,
     rbac: structuredClone(DEFAULT_RBAC),
     auditLogs,
@@ -458,11 +516,11 @@ export function createSeed(): Database {
         at: "2026-09-30T15:00:00+07:00",
         to: ["emp-0001@company.example"],
         subject: "[สวัสดิการ] CLM-2569-0001 จ่ายเงินแล้ว",
-        body: "คำขอเบิกค่ารักษาพยาบาล 2,500 บาท ได้รับการโอนเงินแล้ว (อ้างอิง PAY-2569-09)",
+        body: "จ่ายเงิน 2,500 บาท แล้ว (โอนเงิน อ้างอิง PAY-2569-09-001)",
         event: "mark_paid",
         status: "sent",
       },
     ],
-    counters: { claim_2026: 8, emp: 50 },
+    counters: { claim_2026: 40, emp: 50 },
   };
 }

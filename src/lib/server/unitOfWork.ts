@@ -32,7 +32,7 @@ export function runUnitOfWork<T>(fn: () => T, opts: { withLogs?: boolean; readOn
     } finally {
       setActiveStore(null);
     }
-    // บันทึกแม้ service จะ throw — เพราะบาง service บันทึก audit ก่อนแจ้งข้อผิดพลาด (เช่น PIN ผิด)
+    // บันทึกแม้ service จะ throw — เพราะบาง service บันทึก audit ก่อนแจ้งข้อผิดพลาด (เช่น เข้าสู่ระบบไม่สำเร็จ)
     if (!opts.readOnly) {
       if (store.replaced) await replaceAll(prisma, store.current);
       else await persistChanges(prisma, base, store.current);

@@ -17,7 +17,7 @@ async function main() {
   const db = createSeed();
   await replaceAll(prisma, db);
   console.log(`✔ ใส่ข้อมูลตัวอย่างแล้ว: พนักงาน ${db.employees.length} คน, สวัสดิการ ${db.benefitTypes.length} ประเภท, คำขอ ${db.claims.length} รายการ`);
-  console.log("  บัญชีทดสอบ: EMP-0001 (พนักงาน), EMP-0010 (HR), EMP-0020 (หัวหน้า), EMP-0030 (บัญชี), EMP-0050 (ผู้ดูแลระบบ) — รหัสผ่าน/PIN: 1234");
+  console.log("  บัญชีทดสอบ: EMP-0001 (พนักงาน), EMP-0010 (HR), EMP-0011 (หัวหน้า HR), EMP-0030 (บัญชี), EMP-0050 (ผู้ดูแลระบบ) — รหัสผ่าน: 1234");
 }
 
 main()

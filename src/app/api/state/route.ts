@@ -11,9 +11,11 @@ export async function GET(req: NextRequest) {
     const db = await readDatabase();
     const me = sessionUser(req, db.employees);
     if (!me) {
+      // บัญชีทดสอบ: เปิดเป็นค่าเริ่มต้นตอนพัฒนา (production ต้องตั้ง SHOW_DEMO_ACCOUNTS="true" เองจึงจะแสดง)
+      const showDemo = process.env.SHOW_DEMO_ACCOUNTS === "true" || (process.env.SHOW_DEMO_ACCOUNTS !== "false" && process.env.NODE_ENV !== "production");
       const demo =
-        process.env.SHOW_DEMO_ACCOUNTS === "true"
-          ? ["EMP-0001", "EMP-0010", "EMP-0020", "EMP-0030", "EMP-0050", "EMP-0003"]
+        showDemo
+          ? ["EMP-0001", "EMP-0003", "EMP-0020", "EMP-0010", "EMP-0011", "EMP-0030", "EMP-0050"]
               .map((c) => db.employees.find((e) => e.code === c && e.active))
               .filter(Boolean)
               .map((e) => ({ code: e!.code, name: `${e!.firstName} ${e!.lastName}`, role: e!.role, employmentType: e!.employmentType }))

@@ -3,6 +3,8 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Page } from "@/components/AppShell";
 import { Badge, Button, Card, Field, Input, Modal, SectionTitle, Select, useAction } from "@/components/ui";
+import { LEVELS, LEVEL_LABEL } from "@/lib/domain/constants";
+import { levelOf } from "@/lib/domain/rules";
 import type { Department, Position } from "@/lib/domain/types";
 import { useDB } from "@/lib/hooks";
 import { fullName } from "@/lib/services/core";
@@ -13,59 +15,88 @@ export default function OrgManage() {
   const act = useAction();
   const [dept, setDept] = useState<Partial<Department> | null>(null);
   const [pos, setPos] = useState<Partial<Position> | null>(null);
+  const positions = [...db.positions].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
 
   return (
-    <Page title="แผนก / ตำแหน่ง" perm="org.manage" wide>
-      <SectionTitle
-        action={
-          <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setDept({ code: "", name: "" })}>
-            เพิ่มแผนก
-          </Button>
-        }
-      >
-        แผนกและตำแหน่ง
-      </SectionTitle>
+    <Page title="โครงสร้างองค์กร" perm="org.manage" wide>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section>
+          <SectionTitle
+            action={
+              <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setDept({ code: "", name: "" })}>
+                เพิ่มฝ่าย
+              </Button>
+            }
+          >
+            ฝ่าย
+          </SectionTitle>
+          <Card className="divide-y divide-zinc-100">
+            {db.departments.map((d) => {
+              const count = db.employees.filter((e) => e.departmentId === d.id && e.active).length;
+              return (
+                <div key={d.id} className="flex items-center justify-between gap-2 px-4 py-3 text-sm">
+                  <span>
+                    {d.name} <Badge className="ml-1">{d.code}</Badge> <span className="text-xs text-zinc-400">· {count} คน</span>
+                  </span>
+                  <span className="flex gap-1">
+                    <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setDept(d)} aria-label={`แก้ไข ${d.name}`} />
+                    <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="size-3.5" />} onClick={() => act(() => api.deleteDepartment(d.id), "ลบฝ่ายแล้ว")} aria-label={`ลบ ${d.name}`} />
+                  </span>
+                </div>
+              );
+            })}
+          </Card>
+        </section>
+
+        <section>
+          <SectionTitle
+            action={
+              <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setPos({ name: "", level: 1 })}>
+                เพิ่มตำแหน่ง
+              </Button>
+            }
+          >
+            ตำแหน่ง / ระดับ
+          </SectionTitle>
+          <Card className="divide-y divide-zinc-100">
+            {positions.map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-2 px-4 py-3 text-sm">
+                <span>
+                  <span className="mr-2 inline-flex size-6 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">{p.level}</span>
+                  {p.name} <span className="text-xs text-zinc-400">· {LEVEL_LABEL[p.level]} · {db.employees.filter((e) => e.positionId === p.id && e.active).length} คน</span>
+                </span>
+                <span className="flex gap-1">
+                  <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setPos(p)} aria-label={`แก้ไข ${p.name}`} />
+                  <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="size-3.5" />} onClick={() => act(() => api.deletePosition(p.id), "ลบตำแหน่งแล้ว")} aria-label={`ลบ ${p.name}`} />
+                </span>
+              </div>
+            ))}
+          </Card>
+          <p className="mt-2 text-xs text-zinc-500">ระดับใช้กำหนดวงเงินสวัสดิการ (เมนูวงเงินตามระดับ) · ตำแหน่งไม่ผูกกับฝ่าย ใช้ร่วมกันได้ทุกฝ่าย</p>
+        </section>
+      </div>
+
+      <SectionTitle className="mt-8">พนักงานแยกตามฝ่าย</SectionTitle>
+      <p className="-mt-2 mb-3 text-xs text-zinc-500">แก้ฝ่าย ตำแหน่ง หัวหน้า และประเภทพนักงานได้ที่เมนู &quot;ข้อมูลพนักงาน&quot;</p>
       <div className="grid gap-3 lg:grid-cols-2">
         {db.departments.map((d) => {
-          const positions = db.positions.filter((p) => p.departmentId === d.id);
-          const count = db.employees.filter((e) => e.departmentId === d.id && e.active).length;
-          const heads = [...new Set(db.employees.filter((e) => e.departmentId === d.id && e.role === "manager").map((e) => fullName(e)))];
+          const members = db.employees
+            .filter((e) => e.departmentId === d.id && e.active)
+            .sort((a, b) => levelOf(b, db.positions) - levelOf(a, db.positions));
+          if (!members.length) return null;
           return (
             <Card key={d.id} className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold">
-                    {d.name} <Badge className="ml-1">{d.code}</Badge>
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    พนักงาน {count} คน{heads.length > 0 && ` · หัวหน้า: ${heads.join(", ")}`}
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setDept(d)} aria-label="แก้ไขแผนก" />
-                  <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="size-3.5" />} onClick={() => act(() => api.deleteDepartment(d.id), "ลบแผนกแล้ว")} aria-label="ลบแผนก" />
-                </div>
-              </div>
-              <div className="mt-3 space-y-1.5">
-                {positions.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-1.5 text-sm">
+              <p className="mb-2 font-semibold">{d.name}</p>
+              <ul className="space-y-1 text-sm">
+                {members.map((e) => (
+                  <li key={e.id} className="flex justify-between gap-2">
                     <span>
-                      {p.name} <span className="text-xs text-zinc-400">· {db.employees.filter((e) => e.positionId === p.id && e.active).length} คน</span>
+                      {fullName(e)} <span className="text-xs text-zinc-400">· {db.positions.find((p) => p.id === e.positionId)?.name} (ระดับ {levelOf(e, db.positions)})</span>
                     </span>
-                    <span className="flex gap-1">
-                      <button className="p-1 text-zinc-400 hover:text-ink-900" onClick={() => setPos(p)} aria-label={`แก้ไข ${p.name}`}>
-                        <Pencil className="size-3.5" />
-                      </button>
-                      <button className="p-1 text-zinc-400 hover:text-red-600" onClick={() => act(() => api.deletePosition(p.id), "ลบตำแหน่งแล้ว")} aria-label={`ลบ ${p.name}`}>
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </span>
-                  </div>
+                    <span className="truncate text-xs text-zinc-500">{e.supervisorId ? `หัวหน้า: ${fullName(db.employees.find((x) => x.id === e.supervisorId))}` : "—"}</span>
+                  </li>
                 ))}
-                <button onClick={() => setPos({ name: "", departmentId: d.id })} className="w-full rounded-lg border border-dashed border-zinc-300 py-1.5 text-xs text-zinc-500 hover:border-brand-500 hover:text-brand-600">
-                  + เพิ่มตำแหน่ง
-                </button>
-              </div>
+              </ul>
             </Card>
           );
         })}
@@ -74,22 +105,22 @@ export default function OrgManage() {
       <Modal
         open={!!dept}
         onClose={() => setDept(null)}
-        title={dept?.id ? "แก้ไขแผนก" : "เพิ่มแผนก"}
+        title={dept?.id ? "แก้ไขฝ่าย" : "เพิ่มฝ่าย"}
         size="sm"
         footer={
           <>
             <Button variant="secondary" onClick={() => setDept(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={() => act(() => api.saveDepartment(dept as Department), "บันทึกแผนกแล้ว").then((ok) => ok && setDept(null))}>บันทึก</Button>
+            <Button onClick={() => act(() => api.saveDepartment(dept as Department), "บันทึกฝ่ายแล้ว").then((ok) => ok && setDept(null))}>บันทึก</Button>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="รหัสแผนก" required>
+          <Field label="รหัสฝ่าย" required>
             <Input value={dept?.code ?? ""} onChange={(e) => setDept({ ...dept, code: e.target.value })} placeholder="เช่น MKT" />
           </Field>
-          <Field label="ชื่อแผนก" required>
+          <Field label="ชื่อฝ่าย" required>
             <Input value={dept?.name ?? ""} onChange={(e) => setDept({ ...dept, name: e.target.value })} />
           </Field>
         </div>
@@ -112,11 +143,11 @@ export default function OrgManage() {
           <Field label="ชื่อตำแหน่ง" required>
             <Input value={pos?.name ?? ""} onChange={(e) => setPos({ ...pos, name: e.target.value })} />
           </Field>
-          <Field label="แผนก" required>
-            <Select value={pos?.departmentId ?? ""} onChange={(e) => setPos({ ...pos, departmentId: e.target.value })}>
-              {db.departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
+          <Field label="ระดับ" required hint="ระดับกำหนดวงเงินสวัสดิการ">
+            <Select value={pos?.level ?? 1} onChange={(e) => setPos({ ...pos, level: Number(e.target.value) })}>
+              {LEVELS.map((lv) => (
+                <option key={lv} value={lv}>
+                  {lv} · {LEVEL_LABEL[lv]}
                 </option>
               ))}
             </Select>

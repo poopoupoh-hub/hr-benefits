@@ -28,8 +28,8 @@
 ## 2. ฐานข้อมูล
 
 - ค่าเริ่มต้น SQLite (`prisma/dev.db`) — เปลี่ยนเป็น PostgreSQL ได้ด้วย 1 บรรทัดใน schema + `DATABASE_URL` (โค้ดเลือกไดรเวอร์อัตโนมัติ) ดู [GETTING-STARTED.md ข้อ 10](GETTING-STARTED.md#10-เปลี่ยนไปใช้-postgresql-เมื่อพร้อมขึ้นเซิร์ฟเวอร์จริง)
-- ตารางหลัก: `Department`, `Position`, `Employee`, `BenefitType`, `AnnualBudget`, `FundRound`, `Claim`, `ClaimAttachment`, `ClaimEvent`, `StoredFile`, `Holiday`, `Setting`, `RolePermission`, `AuditLog`, `EmailMessage`, `Counter`
-- Foreign key: ตำแหน่ง→แผนก, พนักงาน→แผนก/ตำแหน่ง/หัวหน้า, คำขอ→พนักงาน/สวัสดิการ/รอบงบ, ไฟล์แนบ/ประวัติ→คำขอ
+- ตารางหลัก: `Department`, `Position`, `Employee`, `BenefitType`, `BenefitLimit`, `FundRound`, `Claim`, `Payment`, `ChangeRequest`, `ClaimAttachment`, `ClaimEvent`, `StoredFile`, `Holiday`, `Setting`, `RolePermission`, `AuditLog`, `EmailMessage`, `Counter`
+- Foreign key: พนักงาน→แผนก/ตำแหน่ง(ระดับ)/หัวหน้างาน, วงเงิน→สวัสดิการ, คำขอ→พนักงาน/สวัสดิการ/รอบงบ, การจ่าย/ไฟล์แนบ/ประวัติ→คำขอ
 - วันที่ปฏิทินเก็บเป็นข้อความ `YYYY-MM-DD` (ไม่เพี้ยนตาม timezone), เวลาเก็บเป็น DateTime, เงินเก็บเป็น Decimal
 - ไฟล์แนบอยู่ที่ `storage/uploads/` (แยกจากฐานข้อมูลหลักตาม NFR) — เปลี่ยนเป็น S3/MinIO ได้ที่ `src/lib/server/files.ts`
 
@@ -45,14 +45,14 @@
 | GET | `/api/audit?entity=&entityId=&actor=&from=&to=&q=&limit=&offset=` | ค้นหา Audit Log (บัญชีเห็นเฉพาะด้านการเงิน) |
 | GET | `/api/emails` | กล่องอีเมลขาออก (ผู้ดูแลระบบ) |
 
-คำสั่งใน `/api/rpc`: `validateClaim, submitClaim, updateClaim, cancelClaim, hrPass, hrReturn, hrReject, approveClaim, rejectClaim, markPaid, createEmployee, updateEmployee, setEmployeeActive, setDelegation, saveDepartment, deleteDepartment, savePosition, deletePosition, saveBenefit, setBudget, saveFundRound, updatePayrollSettings, updateSystemSettings, setRolePermission, setUserRole, resetCredential, changeOwnPassword, exportBackup, restoreBackup, resetDemo`
+คำสั่งใน `/api/rpc`: `validateClaim, submitClaim, updateClaim, approveClaim, rejectClaim, returnClaim, recordPayment, requestClaimChange, requestLimitChange, reviewChange, createEmployee, updateEmployee, setEmployeeActive, saveDepartment, deleteDepartment, savePosition, deletePosition, saveBenefit, saveFundRound, updatePayrollSettings, updateSystemSettings, setRolePermission, setUserRole, resetPassword, changeOwnPassword, exportBackup, restoreBackup, resetDemo`
 
 ## 4. ความปลอดภัย
 
 ทำแล้ว ✅
 - [x] Service layer รันฝั่งเซิร์ฟเวอร์เท่านั้น, ตรวจ RBAC ทุกคำสั่ง
-- [x] Row-level: พนักงานเห็นเฉพาะของตนเอง, หัวหน้าเห็นสายงาน, บัญชีเห็นเฉพาะยอดเงิน/รหัสพนักงาน (`scope.ts`)
-- [x] รหัสผ่าน/PIN: scrypt + salt, PIN ผิดบันทึก audit (`pin_failed`), ล็อกอินผิด 5 ครั้งล็อก 15 นาที
+- [x] Row-level: พนักงานเห็นเฉพาะของตนเอง, HR เห็นคำขอทั้งหมด, บัญชีเห็นเฉพาะยอดเงิน/รหัสพนักงาน/เลขใบเสร็จ, Audit Log เฉพาะผู้ดูแลระบบ (`scope.ts`)
+- [x] รหัสผ่าน: scrypt + salt, ล็อกอินผิด 5 ครั้งล็อก 15 นาที · ปุ่มที่เกี่ยวกับเงินมีกล่องยืนยันเลขคำขอ + ยอดเงิน · หัวหน้า HR อนุมัติคำขอแก้ไขของตัวเองต้องใส่รหัสผ่านซ้ำ (บันทึก `selfApproved`)
 - [x] Session HttpOnly + HMAC, หมดอายุ 8 ชม., ยกเลิกเมื่อเปลี่ยนรหัสผ่าน, Secure อัตโนมัติบน HTTPS
 - [x] ไฟล์แนบ: ตรวจ magic bytes, 5 MB, ตรวจสิทธิ์ก่อนเปิด, ส่งพร้อม CSP sandbox + nosniff
 - [x] CSRF: SameSite=Lax + ตรวจ Origin + บังคับ JSON
@@ -70,15 +70,15 @@
 
 | คำถาม | ค่าที่ตั้งไว้ | ปรับที่ |
 |---|---|---|
-| ลำดับอนุมัติของแต่ละสวัสดิการ | HR ตรวจ → หัวหน้าสายตรงอนุมัติ (ทุกประเภท) | โค้ด: `TRANSITIONS` / `approversFor` ใน `rules.ts` (หากต้องการหลายขั้นตามวงเงิน) |
-| วงเงินแยกตามประเภทพนักงานหรือไม่ | รองรับ (override ต่อประเภท) เช่น ค่ารักษาสัญญาจ้าง 10,000 | `/hr/benefits` |
+| ลำดับอนุมัติของแต่ละสวัสดิการ | HR อนุมัติขั้นเดียว (HR อนุมัติของตัวเองไม่ได้) · แก้ผลหลังตัดสินต้องผ่านหัวหน้า HR | โค้ด: `TRANSITIONS` ใน `rules.ts` |
+| วงเงินตามระดับตำแหน่ง | 4 ระดับ (ตัวอย่าง: ค่ารักษา L1-2 20,000 / L3 40,000 / L4 80,000) · ย้ายตำแหน่งกลางปีใช้วงเงินระดับใหม่ ยอดที่ใช้แล้วนับต่อ | `/hr/limits` (ผ่านหัวหน้า HR) |
 | วันตัดรอบและวันจ่าย | อนุมัติภายในวันที่ 5 → จ่ายสิ้นเดือน | `/hr/payroll` |
-| ใครยื่นแทนและแก้ไขคำขอได้ | HR ยื่นแทน (ต้องมีเหตุผล), ผู้ยื่นแก้ไขได้ก่อน HR ตรวจหรือเมื่อถูกส่งกลับ | `/admin/rbac` |
+| ใครแก้ไขคำขอได้ | เจ้าของคำขอเท่านั้น (ไม่มีการยื่นแทน) แก้ได้ก่อน HR ตรวจหรือเมื่อถูกส่งกลับ | โค้ด: `claims.ts` |
 | เก็บ Audit Log นานเท่าใด | 1,825 วัน (5 ปี) | `/admin/settings` |
 | วันหยุดบริษัท | วันหยุดราชการไทยปี 2569 (ตัวอย่าง — วันทางจันทรคติควรตรวจกับประกาศจริง) | `/hr/payroll` |
 
 ## 6. การทดสอบ
 
-- `npm test` — 36 tests (รวม 6 tests กับฐานข้อมูล SQLite จริง: โหลด/บันทึกตรงกัน, workflow คงอยู่, transaction rollback, scrypt login, สำรอง/กู้คืน): วันจ่ายเงิน (ตัดรอบ, เสาร์-อาทิตย์, วันหยุด, ข้ามปี), วงเงิน/จำนวนครั้ง, คืนสิทธิ์, ประเภทพนักงาน, อายุงาน, เอกสารครบ, งบองค์กร, ผู้อนุมัติสำรอง, workflow ครบวงจร, RBAC/Least privilege, ยื่นแทน, รอบงบภัยพิบัติ, audit ก่อน–หลัง, PDPA ฝั่งบัญชี
-- ทดสอบ E2E ด้วยเบราว์เซอร์กับฐานข้อมูลจริง: พนักงานยื่น + อัปโหลดไฟล์ → HR ตรวจ → หัวหน้าอนุมัติด้วย PIN → บัญชีบันทึกจ่าย → รีสตาร์ทเซิร์ฟเวอร์แล้วข้อมูลยังอยู่
+- `npm test` — 54 tests (รวม 7 tests กับฐานข้อมูล SQLite จริงที่ใช้ migration ทุกตัว): วันจ่ายเงิน, วงเงินตามระดับ (`resolveLimit`), ตัดยอด `computeApproved` (1,500 → 1,000), ครบ 30 ครั้ง, คืนสิทธิ์, ใบเสร็จซ้ำ, ข้อมูลการจ่ายตามวิธี, ลำดับสถานะ, เมนูตามบทบาท, HR อนุมัติของตัวเองไม่ได้, audit ก่อน–หลัง/ไม่มีข้อมูลสุขภาพ, Maker–Checker (ไม่อนุมัติ → ขอแก้ → หัวหน้า HR อนุมัติ), ติดตามใบเสร็จ 1 ใบตั้งแต่ยื่นจนจ่าย
+- ทดสอบ E2E ด้วยเบราว์เซอร์กับฐานข้อมูลจริง: พนักงานยื่น + อัปโหลดไฟล์ → HR อนุมัติ (กล่องยืนยันยอด) → บัญชีบันทึกการจ่าย (บังคับเลขเช็ค/เลขอ้างอิง) → ผู้ดูแลระบบเห็น Audit Log ครบ → รีสตาร์ทเซิร์ฟเวอร์แล้วข้อมูลยังอยู่
 - ทดสอบความปลอดภัย API 26 กรณี (ข้ามสิทธิ์, CSRF, ไฟล์ปลอม, รั่วข้อมูล, session หลังเปลี่ยนรหัสผ่าน)

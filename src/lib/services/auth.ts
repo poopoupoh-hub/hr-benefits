@@ -4,7 +4,7 @@
  */
 import { commit, getDB } from "../data/db";
 import { verifySecret } from "../security/hash";
-import { audit, ServiceError } from "./core";
+import { logAudit, ServiceError } from "./core";
 
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000;
@@ -20,11 +20,11 @@ export function login(code: string, password: string) {
   if (!emp || !verifySecret(password, emp.passwordHash)) {
     const n = (f && Date.now() < f.until ? f.n : 0) + 1;
     fails.set(c, { n, until: Date.now() + LOCK_MS });
-    commit((d) => audit(d, null, { action: "login_failed", entity: "auth", entityId: emp?.id ?? null, summary: `เข้าสู่ระบบไม่สำเร็จ: ${c}` }));
+    commit((d) => logAudit(d, null, { action: "login_failed", entity: "auth", entityId: emp?.id ?? null, summary: `เข้าสู่ระบบไม่สำเร็จ: ${c}` }));
     throw new ServiceError("รหัสพนักงาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง");
   }
   if (!emp.active) throw new ServiceError("บัญชีนี้ถูกปิดสถานะแล้ว");
   fails.delete(c);
-  commit((d) => audit(d, d.employees.find((e) => e.id === emp.id)!, { action: "login", entity: "auth", entityId: emp.id, summary: `${emp.code} เข้าสู่ระบบ` }));
+  commit((d) => logAudit(d, d.employees.find((e) => e.id === emp.id)!, { action: "login", entity: "auth", entityId: emp.id, summary: `${emp.code} เข้าสู่ระบบ` }));
   return emp;
 }

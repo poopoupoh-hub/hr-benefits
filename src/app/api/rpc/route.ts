@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const result = await runUnitOfWork(() => fn(actorId, ...args), { withLogs: NEEDS_LOGS.has(method), readOnly: READ_ONLY.has(method) });
     const res = NextResponse.json({ ok: true, result: result ?? null }, { headers: noStore });
     // เปลี่ยนรหัสผ่านตัวเอง → ออก session ใหม่ (session เดิมทุกเครื่องจะใช้ไม่ได้)
-    if (method === "changeOwnPassword" || (method === "resetCredential" && args[0] === actorId && args[1] === "password")) {
+    if (method === "changeOwnPassword" || (method === "resetPassword" && args[0] === actorId)) {
       const me = (await readDatabase()).employees.find((e) => e.id === actorId);
       if (me) setSessionCookie(req, res, me);
     }

@@ -88,7 +88,7 @@ export default function EmployeesPage() {
         {list.map((e) => {
           const pos = db.positions.find((p) => p.id === e.positionId);
           const d = db.departments.find((x) => x.id === e.departmentId);
-          const mgr = db.employees.find((x) => x.id === e.managerId);
+          const mgr = db.employees.find((x) => x.id === e.supervisorId);
           return (
             <Card key={e.id} className={`p-4 ${e.active ? "" : "bg-zinc-50 opacity-70"}`}>
               <div className="flex items-start gap-3">
@@ -114,9 +114,11 @@ export default function EmployeesPage() {
                       แก้ไข
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" icon={<History className="size-3.5" />} onClick={() => setHist(e)}>
-                    ประวัติ
-                  </Button>
+                  {can("audit.view") && (
+                    <Button size="sm" variant="ghost" icon={<History className="size-3.5" />} onClick={() => setHist(e)}>
+                      ประวัติ
+                    </Button>
+                  )}
                   {manage && e.id !== me.id && (
                     <Button
                       size="sm"
