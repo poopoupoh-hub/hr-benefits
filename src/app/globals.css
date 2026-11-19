@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+/* ----- shadcn/ui design tokens (ผูกกับสีแบรนด์ส้มของระบบ) ----- */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+  --background: #fbf7f3;
+  --foreground: #1f1915;
+  --card: oklch(1 0 0);
+  --card-foreground: #1f1915;
+  --popover: oklch(1 0 0);
+  --popover-foreground: #1f1915;
+  --primary: #c4521e;
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.02 70);
+  --secondary-foreground: oklch(0.3 0.05 50);
+  --muted: #f4ede6;
+  --muted-foreground: #7d6e63;
+  --accent: oklch(0.93 0.05 70);
+  --accent-foreground: oklch(0.3 0.05 50);
+  --destructive: oklch(0.58 0.22 27);
+  --border: #eadfd4;
+  --input: #eadfd4;
+  --ring: #d9602a;
+  --chart-1: oklch(0.7 0.19 47);
+  --chart-2: oklch(0.6 0.15 30);
+  --chart-3: oklch(0.8 0.15 75);
+  --chart-4: oklch(0.65 0.2 20);
+  --chart-5: oklch(0.55 0.14 60);
+}
+
+.dark {
+  --background: oklch(0.17 0.005 270);
+  --foreground: oklch(0.97 0.003 270);
+  --card: oklch(0.2 0.006 270);
+  --card-foreground: oklch(0.97 0.003 270);
+  --popover: oklch(0.2 0.006 270);
+  --popover-foreground: oklch(0.97 0.003 270);
+  --primary: oklch(0.72 0.19 47);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.32 0.06 45);
+  --secondary-foreground: oklch(0.97 0.003 270);
+  --muted: oklch(0.27 0.006 270);
+  --muted-foreground: oklch(0.72 0.01 270);
+  --accent: oklch(0.38 0.09 40);
+  --accent-foreground: oklch(0.97 0.003 270);
+  --destructive: oklch(0.64 0.21 25);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.19 47);
+  --chart-1: oklch(0.68 0.2 45);
+  --chart-2: oklch(0.55 0.18 30);
+  --chart-3: oklch(0.75 0.16 70);
+  --chart-4: oklch(0.6 0.21 20);
+  --chart-5: oklch(0.5 0.12 55);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+@theme {
+  --font-sans: "Noto Sans Thai Looped", ui-sans-serif, system-ui, sans-serif;
+
+  /* สีแบรนด์ terracotta (500 = สีปุ่มหลัก ผ่าน contrast 4.5:1 กับตัวอักษรขาว) */
+  --color-brand-50: #fdf3ec;
+  --color-brand-100: #fbe4d5;
+  --color-brand-200: #f5c6a8;
+  --color-brand-300: #eda07a;
+  --color-brand-400: #d9602a;
+  --color-brand-500: #c4521e;
+  --color-brand-600: #a84519;
+  --color-brand-700: #8a3815;
+  --color-brand-800: #6c2c11;
+  --color-brand-900: #4f200d;
+
+  /* โทนเข้มอุ่น (แทนดำเทา) */
+  --color-ink-950: #17120f;
+  --color-ink-900: #1f1915;
+  --color-ink-800: #2e2621;
+  --color-ink-700: #3f352f;
+
+  /* แทนที่ zinc ทั้งระบบด้วย neutral โทนครีมอุ่น — ทุกหน้าที่ใช้ zinc-* จะเปลี่ยนตามอัตโนมัติ */
+  --color-zinc-50: #fbf7f3;
+  --color-zinc-100: #f4ede6;
+  --color-zinc-200: #eadfd4;
+  --color-zinc-300: #d9cabc;
+  --color-zinc-400: #a8978a;
+  --color-zinc-500: #7d6e63;
+  --color-zinc-600: #625449;
+  --color-zinc-700: #4a3f39;
+  --color-zinc-800: #332b26;
+  --color-zinc-900: #241e1a;
+  --color-zinc-950: #17120f;
+
+  --color-canvas: #fbf7f3;
+  --color-sidebar: #f7f0e9;
+
+  --animate-sheet: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade: fade-in 0.18s ease-out;
+  @keyframes sheet-up {
+    from { transform: translateY(24px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+html { -webkit-tap-highlight-color: transparent; }
+body {
+  @apply bg-canvas text-ink-900 font-sans antialiased;
+}
+/* พื้นหลังไล่สีพีช (เห็นรอบกรอบแอปบนจอใหญ่ และหน้าเข้าสู่ระบบ) */
+.bg-warm {
+  background:
+    radial-gradient(1100px 700px at 0% 0%, #ffe7d4 0%, transparent 60%),
+    radial-gradient(900px 600px at 100% 100%, #f7cfb2 0%, transparent 55%),
+    linear-gradient(135deg, #fdeee2 0%, #f9dcc6 100%);
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.6; cursor: pointer; }
+.tabular { font-variant-numeric: tabular-nums; }
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+@media print {
+  .no-print { display: none !important; }
+  .app-frame, .app-scroll { height: auto !important; overflow: visible !important; border: 0 !important; box-shadow: none !important; }
+  .bg-warm { background: #fff !important; }
+}
