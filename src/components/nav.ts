@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   FileClock,
   FilePlus2,
+  FilePen,
   FileText,
   Gift,
   Home,
@@ -13,10 +14,9 @@ import {
   ListChecks,
   Mail,
   Network,
-  PiggyBank,
+  Scale,
   Settings,
   ShieldCheck,
-  UserPlus,
   Users,
   Wallet,
   type LucideIcon,
@@ -35,38 +35,35 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { href: "/me", label: "หน้าแรก", icon: Home, perm: "self.claim", group: "สวัสดิการของฉัน", primaryFor: ["employee", "manager", "finance"] },
+  { href: "/me", label: "หน้าแรก", icon: Home, perm: "self.claim", group: "สวัสดิการของฉัน", primaryFor: ["employee", "finance"] },
   { href: "/me/new", label: "ยื่นเบิกสวัสดิการ", short: "ยื่นเบิก", icon: FilePlus2, perm: "self.claim", group: "สวัสดิการของฉัน", primaryFor: ["employee"] },
   { href: "/me/claims", label: "รายการของฉัน", icon: ListChecks, perm: "self.claim", group: "สวัสดิการของฉัน", primaryFor: ["employee"] },
   { href: "/me/org", label: "โครงสร้างองค์กร", short: "องค์กร", icon: Network, perm: "self.claim", group: "สวัสดิการของฉัน" },
 
-  { href: "/manager", label: "คำขอรออนุมัติ", short: "รออนุมัติ", icon: ClipboardCheck, perm: "claim.approve", group: "หัวหน้างาน", primaryFor: ["manager"] },
-  { href: "/manager/team", label: "ทีมของฉัน", short: "ทีม", icon: Users, perm: "team.view", group: "หัวหน้างาน", primaryFor: ["manager"] },
-
-  { href: "/hr", label: "คำขอรอตรวจ", short: "รอตรวจ", icon: ClipboardCheck, perm: "claim.review", group: "ฝ่ายบุคคล (HR)", primaryFor: ["hr"] },
-  { href: "/hr/file", label: "ยื่นเบิกแทนพนักงาน", short: "ยื่นแทน", icon: UserPlus, perm: "claim.file_on_behalf", group: "ฝ่ายบุคคล (HR)" },
+  { href: "/hr", label: "คำขอรอตรวจ", short: "รอตรวจ", icon: ClipboardCheck, perm: "claim.review", group: "ฝ่ายบุคคล (HR)", primaryFor: ["hr", "hr_head"] },
   { href: "/hr/claims", label: "คำขอทั้งหมด", icon: FileText, perm: "claim.review", group: "ฝ่ายบุคคล (HR)" },
+  { href: "/hr/changes", label: "คำขอแก้ไข", short: "คำขอแก้", icon: FilePen, perm: "change.request", group: "ฝ่ายบุคคล (HR)", primaryFor: ["hr_head"] },
   { href: "/hr/employees", label: "ข้อมูลพนักงาน", short: "พนักงาน", icon: Users, perm: "employee.view", group: "ฝ่ายบุคคล (HR)", primaryFor: ["hr"] },
-  { href: "/hr/org", label: "แผนก / ตำแหน่ง", icon: Building2, perm: "org.manage", group: "ฝ่ายบุคคล (HR)" },
+  { href: "/hr/org", label: "โครงสร้างองค์กร / ตำแหน่ง", short: "องค์กร", icon: Building2, perm: "org.manage", group: "ฝ่ายบุคคล (HR)" },
   { href: "/hr/benefits", label: "ประเภทสวัสดิการ", short: "สวัสดิการ", icon: Gift, perm: "benefit.manage", group: "ฝ่ายบุคคล (HR)", primaryFor: ["hr"] },
-  { href: "/hr/budget", label: "งบประมาณ / รอบงบ", icon: PiggyBank, perm: "budget.manage", group: "ฝ่ายบุคคล (HR)" },
+  { href: "/hr/limits", label: "วงเงินตามระดับ", icon: Scale, perm: "benefit.manage", group: "ฝ่ายบุคคล (HR)" },
   { href: "/hr/payroll", label: "วันตัดรอบ / วันหยุด", icon: CalendarClock, perm: "payroll.settings", group: "ฝ่ายบุคคล (HR)" },
 
-  { href: "/finance", label: "รอบจ่ายเงิน", short: "รอบจ่าย", icon: Wallet, perm: "payment.view", group: "บัญชี / การเงิน", primaryFor: ["finance"] },
-  { href: "/reports", label: "รายงาน", icon: BarChart3, perm: "report.export", group: "บัญชี / การเงิน", primaryFor: ["finance"] },
+  { href: "/finance", label: "รายการรอจ่าย", short: "รอจ่าย", icon: Wallet, perm: "payment.view", group: "บัญชี / การเงิน", primaryFor: ["finance"] },
+  { href: "/reports", label: "รายงานยอดเบิก", short: "รายงาน", icon: BarChart3, perm: "report.view", group: "รายงาน", primaryFor: ["finance", "hr_head"] },
 
   { href: "/admin", label: "ภาพรวมระบบ", short: "ภาพรวม", icon: LayoutDashboard, perm: "system.manage", group: "ผู้ดูแลระบบ", primaryFor: ["admin"] },
   { href: "/admin/users", label: "ผู้ใช้", icon: KeyRound, perm: "user.manage", group: "ผู้ดูแลระบบ", primaryFor: ["admin"] },
   { href: "/admin/rbac", label: "สิทธิ์การเข้าถึง (RBAC)", icon: ShieldCheck, perm: "rbac.manage", group: "ผู้ดูแลระบบ" },
-  { href: "/audit", label: "Audit Log", icon: FileClock, perm: "audit.view", group: "ผู้ดูแลระบบ" },
+  { href: "/audit", label: "Audit Log", icon: FileClock, perm: "audit.view", group: "ผู้ดูแลระบบ", primaryFor: ["admin"] },
   { href: "/admin/emails", label: "อีเมลแจ้งเตือน", icon: Mail, perm: "system.manage", group: "ผู้ดูแลระบบ" },
-  { href: "/admin/settings", label: "ตั้งค่าระบบ", short: "ตั้งค่า", icon: Settings, perm: "system.manage", group: "ผู้ดูแลระบบ", primaryFor: ["admin"] },
+  { href: "/admin/settings", label: "ตั้งค่าระบบ", short: "ตั้งค่า", icon: Settings, perm: "system.manage", group: "ผู้ดูแลระบบ" },
 ];
 
 export const HOME_BY_ROLE: Record<Role, string> = {
   employee: "/me",
-  manager: "/manager",
   hr: "/hr",
+  hr_head: "/hr",
   finance: "/finance",
   admin: "/admin",
 };

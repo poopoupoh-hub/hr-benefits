@@ -1,6 +1,6 @@
 /**
  * Service Layer — บริการกลาง: ตรวจสิทธิ์ (RBAC), บันทึก Audit Log, ส่งอีเมล
- * ทุก service ที่แก้ข้อมูลต้องผ่าน assertCan() และ audit() เสมอ
+ * ทุก service ที่แก้ข้อมูลต้องผ่าน assertCan() และ logAudit() เสมอ
  */
 import { FORBIDDEN_PERMISSIONS } from "../domain/constants";
 import type { AuditLog, Database, Employee, Permission } from "../domain/types";
@@ -25,21 +25,33 @@ export function assertCan(db: Database, actor: Employee | null | undefined, perm
   if (!can(db, actor, perm)) throw new ServiceError("คุณไม่มีสิทธิ์ทำรายการนี้");
 }
 
-export function audit(
-  db: Database,
-  actor: Employee | null,
-  entry: Omit<AuditLog, "id" | "at" | "actorId" | "actorRole">,
-) {
+/** ฟิลด์ที่ห้ามลง before/after: รหัสผ่าน และข้อมูลที่อาจเป็นข้อมูลสุขภาพ (PDPA) */
+const HIDDEN_FIELDS = new Set(["passwordHash", "note", "vendorName", "receiptNo", "attachments", "history", "diagnosis", "updatedAt"]);
+
+function sanitize(v: unknown): unknown {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([k]) => !HIDDEN_FIELDS.has(k)));
+}
+
+/**
+ * เพิ่มรายการ Audit Log (append-only — ระบบไม่มีฟังก์ชันแก้หรือลบ)
+ * ถ้าส่ง before/after มาแต่ไม่มีอะไรเปลี่ยนจริง จะไม่บันทึก
+ */
+export function logAudit(db: Database, actor: Employee | null, entry: Omit<AuditLog, "id" | "at" | "actorId" | "actorRole">): boolean {
+  const before = sanitize(entry.before);
+  const after = sanitize(entry.after);
+  if (entry.before !== undefined && entry.after !== undefined && JSON.stringify(before) === JSON.stringify(after)) return false;
   db.auditLogs.unshift({
     id: uid("al"),
     at: nowISO(),
     actorId: actor?.id ?? null,
     actorRole: actor?.role ?? null,
     ...entry,
+    before,
+    after,
   });
+  return true;
 }
-
-const SECRET_FIELDS = new Set(["passwordHash", "pinHash"]);
 
 /** คืนค่าเฉพาะฟิลด์ที่เปลี่ยน (ข้อมูลก่อน–หลัง) */
 export function diff<T extends object>(before: T, after: T) {
@@ -47,7 +59,7 @@ export function diff<T extends object>(before: T, after: T) {
   const a: Record<string, unknown> = {};
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
   for (const k of keys) {
-    if (SECRET_FIELDS.has(k) || k === "updatedAt") continue;
+    if (HIDDEN_FIELDS.has(k)) continue;
     const bv = (before as Record<string, unknown>)[k];
     const av = (after as Record<string, unknown>)[k];
     if (JSON.stringify(bv) !== JSON.stringify(av)) {

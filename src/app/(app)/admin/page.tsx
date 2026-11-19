@@ -7,7 +7,6 @@ import { AuditRow } from "@/components/AuditList";
 import { Alert, Card, Progress, Segmented, SectionTitle } from "@/components/ui";
 import { IN_PROGRESS_STATUSES } from "@/lib/domain/constants";
 import { beYear, dateOf, diffDays, todayLocal, yearOf } from "@/lib/domain/dates";
-import { claimValue, orgBudgetOf } from "@/lib/domain/rules";
 import type { ClaimStatus } from "@/lib/domain/types";
 import { dateTimeFullTH, money } from "@/lib/format";
 import { fetchAudit, fetchEmails } from "@/lib/client/api";
@@ -17,7 +16,6 @@ import { fullName } from "@/lib/services/core";
 const PIPE: { s: ClaimStatus; label: string; tone: "gray" | "amber" | "blue" | "green" | "red" | "brand" }[] = [
   { s: "pending_hr", label: "รอ HR", tone: "gray" },
   { s: "returned", label: "ส่งกลับแก้ไข", tone: "brand" },
-  { s: "pending_manager", label: "รอหัวหน้า", tone: "amber" },
   { s: "approved", label: "อนุมัติแล้ว (รอจ่าย)", tone: "green" },
   { s: "paid", label: "จ่ายแล้ว", tone: "blue" },
   { s: "rejected", label: "ไม่อนุมัติ", tone: "red" },
@@ -26,13 +24,13 @@ const PIPE: { s: ClaimStatus; label: string; tone: "gray" | "amber" | "blue" | "
 export default function AdminDashboard() {
   const db = useDB();
   const me = useMe()!;
-  const [tab, setTab] = useState<"overview" | "budget" | "activity">("overview");
+  const [tab, setTab] = useState<"overview" | "activity">("overview");
   const activity = useAsync(() => (tab === "activity" ? fetchAudit({ limit: 15 }) : Promise.resolve(null)), [tab, db]);
   const emails = useAsync(() => fetchEmails(), [db]);
   const today = todayLocal();
   const year = yearOf(today);
   const yearClaims = db.claims.filter((c) => yearOf(c.receiptDate) === year);
-  const v = (c: (typeof yearClaims)[number]) => claimValue(c, db.benefitTypes.find((b) => b.id === c.benefitTypeId));
+  const v = (c: (typeof yearClaims)[number]) => c.amountApproved;
   const sum = (s: ClaimStatus[]) => yearClaims.filter((c) => s.includes(c.status)).reduce((a, c) => a + v(c), 0);
   const count = (s: ClaimStatus[]) => yearClaims.filter((c) => s.includes(c.status)).length;
   const paid = sum(["paid"]);
@@ -75,7 +73,6 @@ export default function AdminDashboard() {
         onChange={setTab}
         options={[
           { value: "overview", label: "ภาพรวม" },
-          { value: "budget", label: "งบประมาณ" },
           { value: "activity", label: "กิจกรรม" },
         ]}
       />
@@ -134,55 +131,6 @@ export default function AdminDashboard() {
             </Link>
           </div>
         </>
-      )}
-
-      {tab === "budget" && (
-        <div className="mt-4 space-y-3">
-          <p className="text-sm text-zinc-500">งบรวมทั้งองค์กร (พนักงานที่มีสิทธิ์ × วงเงิน)</p>
-          {db.benefitTypes
-            .filter((b) => b.mode === "claim")
-            .map((b) => {
-              const ob = orgBudgetOf(b, year, db.employees, db.claims, db.budgets, today);
-              const pct = ob.budget ? ((ob.used + ob.pending) / ob.budget) * 100 : 0;
-              return (
-                <Card key={b.id} className="p-4">
-                  <div className="flex justify-between">
-                    <div>
-                      <p className="font-semibold">{b.name}</p>
-                      <p className="text-xs text-zinc-500">
-                        {ob.eligibleCount} คนมีสิทธิ์
-                        {b.annualLimit != null && ` · วงเงิน/คน ${money(b.annualLimit)}`}
-                        {b.perClaimLimit != null && ` · ครั้งละ ≤ ${money(b.perClaimLimit)}`}
-                        {b.maxTimesPerYear != null && ` · ปีละ ≤ ${b.maxTimesPerYear} ครั้ง`}
-                      </p>
-                    </div>
-                    <Link href="/hr/benefits" className="text-sm font-medium text-brand-600">
-                      แก้ไข
-                    </Link>
-                  </div>
-                  <Progress value={pct} className="mt-3" />
-                  <div className="mt-3 grid grid-cols-3 text-center text-xs">
-                    <div>
-                      <p className="text-zinc-500">วงเงินรวม</p>
-                      <p className="font-semibold tabular">{money(ob.budget)}</p>
-                    </div>
-                    <div>
-                      <p className="text-zinc-500">ใช้ไป/กัน</p>
-                      <p className="font-semibold text-brand-600 tabular">{money(ob.used + ob.pending)}</p>
-                    </div>
-                    <div>
-                      <p className="text-zinc-500">คงเหลือ</p>
-                      <p className="font-semibold text-emerald-600 tabular">{money(ob.remaining)}</p>
-                    </div>
-                  </div>
-                  <p className="mt-2 flex justify-between text-[11px] text-zinc-400">
-                    <span>จ่ายจริง: {money(ob.paid)}</span>
-                    <span>{pct.toFixed(0)}% ของงบ</span>
-                  </p>
-                </Card>
-              );
-            })}
-        </div>
       )}
 
       {tab === "activity" && (

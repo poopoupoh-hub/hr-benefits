@@ -1,83 +1,53 @@
 /**
  * ตัดข้อมูลตามสิทธิ์ก่อนส่งให้หน้าจอ (Row/Column-level security)
- * - ไม่ส่ง password/PIN hash ออกไปเด็ดขาด
- * - พนักงานเห็นเฉพาะคำขอของตนเอง หัวหน้าเห็นของทีม HR เห็นทั้งหมด
- * - บัญชี/ผู้ดูแลระบบเห็นเฉพาะยอดเงินและสถานะ (ไม่มีเอกสาร หมายเหตุ ชื่อ) — PDPA
+ * - ไม่ส่ง password hash ออกไปเด็ดขาด
+ * - พนักงานเห็นเฉพาะคำขอของตนเอง HR / หัวหน้า HR เห็นทั้งหมด
+ * - บัญชีเห็นเฉพาะยอดเงิน สถานะ เลขใบเสร็จ/ร้าน (ใช้ทำจ่าย) ของคำขอที่อนุมัติ/จ่ายแล้ว — ไม่มีชื่อ เอกสาร หมายเหตุ (PDPA)
  */
-import { approversFor } from "../domain/rules";
-import { todayLocal } from "../domain/dates";
 import type { Claim, Database, Employee } from "../domain/types";
 import { can } from "../services/core";
 
-export type PublicEmployee = Employee;
-
 function stripSecrets(e: Employee): Employee {
-  return { ...e, passwordHash: "", pinHash: "" };
+  return { ...e, passwordHash: "" };
 }
 
 function directory(e: Employee): Employee {
-  return {
-    ...stripSecrets(e),
-    phone: undefined,
-    startDate: "",
-    contractEndDate: null,
-    createdAt: "",
-    updatedAt: "",
-  };
+  return { ...stripSecrets(e), phone: undefined, startDate: "", contractEndDate: null, createdAt: "", updatedAt: "" };
 }
 
 function masked(e: Employee): Employee {
-  return { ...directory(e), firstName: e.code, lastName: "", email: "", managerId: null, delegation: null };
+  return { ...directory(e), firstName: e.code, lastName: "", email: "", supervisorId: null };
 }
 
 function financialOnly(c: Claim): Claim {
-  return {
-    ...c,
-    note: undefined,
-    attachments: [],
-    history: [],
-    filedReason: null,
-    rejectReason: null,
-    returnReason: null,
-  };
+  return { ...c, note: undefined, attachments: [], history: [], rejectReason: null, returnReason: null };
 }
 
 export function scopeDatabase(db: Database, me: Employee): Database {
   const p = (perm: Parameters<typeof can>[2]) => can(db, me, perm);
-  const today = todayLocal();
   const seeAllEmployees = p("employee.view");
-  const financeView = p("payment.view") && !seeAllEmployees;
-
-  const teamIds = new Set(
-    db.employees.filter((e) => e.managerId === me.id || approversFor(e, db.employees, today).includes(me.id)).map((e) => e.id),
-  );
+  const reviewer = p("claim.review");
+  const financeView = (p("payment.view") || p("report.view")) && !seeAllEmployees;
 
   const employees = db.employees.map((e) => {
     if (e.id === me.id || seeAllEmployees) return stripSecrets(e);
-    if ((p("team.view") || p("claim.approve")) && teamIds.has(e.id)) return stripSecrets(e);
-    if (financeView && !["hr", "finance", "admin"].includes(e.role)) return masked(e);
+    if (financeView && !["hr", "hr_head", "finance", "admin"].includes(e.role)) return masked(e);
     return directory(e);
   });
 
-  const fullClaim = (c: Claim) =>
-    p("claim.review") ||
-    c.employeeId === me.id ||
-    c.filedById === me.id ||
-    c.approverId === me.id ||
-    ((p("team.view") || p("claim.approve")) && teamIds.has(c.employeeId));
-  const financialClaim = (c: Claim) =>
-    ((p("payment.view") || p("report.export")) && (c.status === "approved" || c.status === "paid")) || p("system.manage");
-
   const claims: Claim[] = [];
   for (const c of db.claims) {
-    if (fullClaim(c)) claims.push(c);
-    else if (financialClaim(c)) claims.push(financialOnly(c));
+    if (reviewer || c.employeeId === me.id) claims.push(c);
+    else if (financeView && (c.status === "approved" || c.status === "paid")) claims.push(financialOnly(c));
   }
+  const visible = new Set(claims.map((c) => c.id));
 
   return {
     ...db,
     employees,
     claims,
+    payments: db.payments.filter((x) => visible.has(x.claimId)),
+    changeRequests: p("change.request") || p("change.review") ? db.changeRequests : [],
     auditLogs: [],
     emails: [],
     counters: {},

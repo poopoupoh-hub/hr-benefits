@@ -21,7 +21,7 @@ async function rpc(method: string, args: unknown[]) {
   const j = await res.json().catch(() => ({ ok: false, error: `เซิร์ฟเวอร์ตอบกลับผิดพลาด (${res.status})` }));
   if (res.status === 401) await refresh();
   if (!j.ok) {
-    // บางคำสั่งบันทึกข้อมูลก่อนแจ้งผิดพลาด (เช่น PIN ผิด) จึงโหลดใหม่ด้วย
+    // บางคำสั่งบันทึกข้อมูลก่อนแจ้งผิดพลาด (เช่น เข้าสู่ระบบไม่สำเร็จ) จึงโหลดใหม่ด้วย
     if (!NO_REFRESH.has(method)) refresh();
     throw new Error(j.error ?? "เกิดข้อผิดพลาด");
   }
@@ -79,6 +79,7 @@ export async function fetchFile(id: string): Promise<Blob | null> {
 
 export interface AuditQuery {
   entity?: string;
+  action?: string;
   entities?: string;
   entityId?: string;
   actor?: string;
@@ -89,7 +90,7 @@ export interface AuditQuery {
   offset?: number;
 }
 
-export async function fetchAudit(q: AuditQuery): Promise<{ total: number; items: AuditLog[]; full: boolean }> {
+export async function fetchAudit(q: AuditQuery): Promise<{ total: number; items: AuditLog[]; full: boolean; actions?: string[] }> {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") sp.set(k, String(v));
   const res = await fetch(`/api/audit?${sp}`, { cache: "no-store", credentials: "same-origin" });

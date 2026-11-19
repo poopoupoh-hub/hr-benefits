@@ -1,10 +1,8 @@
 /**
- * Domain types — โครงสร้างข้อมูลหลักของระบบ
- * ไฟล์นี้เป็น "สัญญา" ระหว่าง UI กับ Backend: เมื่อเลือกฐานข้อมูลจริง ให้ทำ schema ตามนี้
- * (ดู docs/DATABASE.sql สำหรับ DDL ตัวอย่าง)
+ * Domain types — โครงสร้างข้อมูลหลักของระบบ (type กลาง ใช้ร่วมกันทั้ง UI / service / ฐานข้อมูล)
  */
 
-export type Role = "employee" | "manager" | "hr" | "finance" | "admin";
+export type Role = "employee" | "hr" | "hr_head" | "finance" | "admin";
 
 /** ประเภทพนักงาน — ใช้กำหนดสิทธิ์สวัสดิการ */
 export type EmploymentType = "permanent" | "probation" | "contract" | "terminated";
@@ -18,38 +16,31 @@ export interface Department {
   name: string;
 }
 
+/** ตำแหน่ง/ระดับ — แยกจากฝ่าย; level ใช้กำหนดวงเงินสวัสดิการ */
 export interface Position {
   id: string;
   name: string;
-  departmentId: string;
-}
-
-export interface Delegation {
-  /** ผู้อนุมัติสำรอง */
-  employeeId: string;
-  from: ISODate;
-  to: ISODate;
+  /** 1 เจ้าหน้าที่, 2 ผู้ช่วยผู้จัดการ, 3 ผู้จัดการ, 4 ผู้บริหาร */
+  level: number;
 }
 
 export interface Employee {
   id: string;
-  code: string; // EMP-0001
+  code: string; // EMP-0001 (ใช้เป็น username)
   firstName: string;
   lastName: string;
   email: string;
   phone?: string;
   departmentId: string;
   positionId: string;
-  managerId: string | null;
+  supervisorId: string | null;
   employmentType: EmploymentType;
   startDate: ISODate;
   contractEndDate?: ISODate | null;
   role: Role;
   active: boolean;
-  /** SHA-256 hex (เดโม) — Backend จริงควรใช้ bcrypt/argon2 ฝั่งเซิร์ฟเวอร์ */
+  /** scrypt hash */
   passwordHash: string;
-  pinHash: string;
-  delegation?: Delegation | null;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
 }
@@ -57,27 +48,15 @@ export interface Employee {
 /** โหมดของสวัสดิการ: พนักงานแจ้งยอดเอง หรือ HR กำหนดเงินช่วยเหลือ (เช่น งบภัยพิบัติ) */
 export type BenefitMode = "claim" | "assigned";
 
-export interface TypeLimit {
-  annualLimit?: number | null;
-  perClaimLimit?: number | null;
-  maxTimesPerYear?: number | null;
-}
-
 export interface BenefitType {
   id: string;
   code: string;
   name: string;
+  /** หมวด ใช้จัดกลุ่มใน Dropdown เช่น สุขภาพ / ครอบครัว / ช่วยเหลือ */
+  category: string;
   description?: string;
   mode: BenefitMode;
-  /** วงเงินต่อคนต่อปี (null = ไม่จำกัด) */
-  annualLimit: number | null;
-  /** วงเงินต่อครั้ง (null = ไม่จำกัด) */
-  perClaimLimit: number | null;
-  /** จำนวนครั้งต่อปี (null = ไม่จำกัด) */
-  maxTimesPerYear: number | null;
   eligibleTypes: EmploymentType[];
-  /** วงเงินเฉพาะประเภทพนักงาน (ระดับพนักงาน) — ทับค่าทั่วไป */
-  typeOverrides?: Partial<Record<EmploymentType, TypeLimit>>;
   requiredDocs: string[];
   /** อายุงานขั้นต่ำ (วัน) */
   minServiceDays?: number | null;
@@ -90,13 +69,17 @@ export interface BenefitType {
   updatedAt: ISODateTime;
 }
 
-/** งบประมาณรายปีระดับองค์กร ต่อประเภทสวัสดิการ */
-export interface AnnualBudget {
+/** วงเงินตามระดับตำแหน่ง — เพิ่มแถวใหม่เมื่อเปลี่ยน ไม่แก้ทับแถวเดิม */
+export interface BenefitLimit {
   id: string;
-  year: number; // ค.ศ.
-  benefitTypeId: string;
-  /** null = คำนวณอัตโนมัติ (จำนวนคนมีสิทธิ์ × วงเงิน) */
-  amount: number | null;
+  benefitId: string;
+  minLevel: number;
+  maxLevel: number;
+  perClaim?: number | null;
+  perYear?: number | null;
+  maxCount?: number | null;
+  effectiveFrom: ISODate;
+  createdAt: ISODateTime;
 }
 
 /** รอบงบ เช่น งบภัยพิบัติ (สวัสดิการโหมด assigned) */
@@ -116,11 +99,9 @@ export interface FundRound {
 export type ClaimStatus =
   | "pending_hr" // รอ HR ตรวจ
   | "returned" // ส่งกลับแก้ไข
-  | "pending_manager" // รอหัวหน้าอนุมัติ
-  | "approved" // อนุมัติแล้ว รอจ่าย
-  | "paid" // จ่ายแล้ว
   | "rejected" // ไม่อนุมัติ (คืนสิทธิ์)
-  | "cancelled"; // ผู้ยื่นยกเลิก (คืนสิทธิ์)
+  | "approved" // อนุมัติแล้ว รอจ่าย
+  | "paid"; // จ่ายแล้ว
 
 export interface AttachmentMeta {
   id: string; // key ใน file store (แยกจากฐานข้อมูลหลัก)
@@ -131,18 +112,7 @@ export interface AttachmentMeta {
   uploadedAt: ISODateTime;
 }
 
-export type ClaimAction =
-  | "submit"
-  | "resubmit"
-  | "hr_pass"
-  | "hr_return"
-  | "hr_reject"
-  | "assign_amount"
-  | "approve"
-  | "reject"
-  | "mark_paid"
-  | "cancel"
-  | "edit";
+export type ClaimAction = "submit" | "resubmit" | "edit" | "approve" | "reject" | "return" | "mark_paid" | "change_result";
 
 export interface ClaimEvent {
   at: ISODateTime;
@@ -159,29 +129,63 @@ export interface Claim {
   employeeId: string;
   benefitTypeId: string;
   fundRoundId?: string | null;
-  /** ยอดที่ขอ (โหมด assigned = 0 จนกว่า HR กำหนด) */
-  amount: number;
-  /** ยอดที่ HR กำหนด (โหมด assigned) */
-  assignedAmount?: number | null;
+  /** เลขที่ใบเสร็จ */
+  receiptNo: string;
+  /** ร้าน / บริษัท / โรงพยาบาล */
+  vendorName: string;
+  /** ยอดตามใบเสร็จ (โหมด assigned = 0) */
+  amountRequested: number;
+  /** ยอดที่เบิกได้จริงหลังตัดตามวงเงิน (โหมด assigned = ยอดที่ HR กำหนดตอนอนุมัติ) */
+  amountApproved: number;
   receiptDate: ISODate;
   note?: string;
   attachments: AttachmentMeta[];
   status: ClaimStatus;
   submittedAt: ISODateTime;
-  /** ยื่นแทนโดย HR */
-  filedById?: string | null;
-  filedReason?: string | null;
-  docsCompleteAt?: ISODateTime | null;
-  approverId?: string | null;
-  approvedAt?: ISODateTime | null;
+  /** ผู้พิจารณา (อนุมัติ / ไม่อนุมัติ) และเวลา */
+  decidedById?: string | null;
+  decidedAt?: ISODateTime | null;
   /** วันจ่ายเงินที่คำนวณ */
   payDate?: ISODate | null;
-  paidAt?: ISODateTime | null;
-  paidById?: string | null;
-  paymentRef?: string | null;
   rejectReason?: string | null;
   returnReason?: string | null;
   history: ClaimEvent[];
+}
+
+export type PaymentMethod = "cash" | "transfer" | "cheque";
+
+/** บันทึกการจ่ายเงินรายคำขอ */
+export interface Payment {
+  claimId: string;
+  method: PaymentMethod;
+  paidAt: ISODate;
+  transferRef?: string | null;
+  chequeNo?: string | null;
+  chequeDate?: ISODate | null;
+  recordedBy: string;
+  recordedAt: ISODateTime;
+  note?: string | null;
+}
+
+export type ChangeRequestKind = "claim_status" | "benefit_limit";
+export type ChangeRequestStatus = "pending" | "approved" | "rejected";
+
+/** คำขอแก้ไข (Maker–Checker): HR ขอ → หัวหน้า HR อนุมัติจึงมีผล */
+export interface ChangeRequest {
+  id: string;
+  kind: ChangeRequestKind;
+  /** claimId หรือ benefitId */
+  targetId: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  reason: string;
+  requestedBy: string;
+  requestedAt: ISODateTime;
+  status: ChangeRequestStatus;
+  reviewedBy?: string | null;
+  reviewedAt?: ISODateTime | null;
+  reviewNote?: string | null;
+  selfApproved?: boolean;
 }
 
 export interface Holiday {
@@ -193,7 +197,6 @@ export interface Settings {
   /** อนุมัติภายในวันที่ N → จ่ายสิ้นเดือนนั้น; หลังวันที่ N → สิ้นเดือนถัดไป */
   cutoffDay: number;
   holidays: Holiday[];
-  orgBudgetMode: "warn" | "block";
   email: {
     enabled: boolean;
     provider: "mock" | "smtp" | "api";
@@ -210,14 +213,29 @@ export interface Settings {
   orgName: string;
 }
 
+/** Audit Log — เพิ่มได้อย่างเดียว เก็บ before/after เฉพาะฟิลด์ที่เปลี่ยน */
 export interface AuditLog {
   id: string;
   at: ISODateTime;
   actorId: string | null;
   actorRole: Role | null;
-  action: string; // create | update | delete | approve | status_change | login | ...
-  entity: "employee" | "benefit" | "claim" | "payment" | "settings" | "rbac" | "department" | "position" | "budget" | "fund" | "auth" | "system";
+  action: string;
+  entity:
+    | "employee"
+    | "benefit"
+    | "benefit_limit"
+    | "claim"
+    | "payment"
+    | "change_request"
+    | "settings"
+    | "rbac"
+    | "department"
+    | "position"
+    | "fund"
+    | "auth"
+    | "system";
   entityId: string | null;
+  /** คำอธิบาย/หมายเหตุ */
   summary: string;
   before?: unknown;
   after?: unknown;
@@ -235,19 +253,17 @@ export interface EmailMessage {
 
 export type Permission =
   | "self.claim"
-  | "team.view"
-  | "claim.approve"
   | "claim.review"
-  | "claim.file_on_behalf"
+  | "change.request"
+  | "change.review"
   | "employee.view"
   | "employee.manage"
   | "org.manage"
   | "benefit.manage"
-  | "budget.manage"
   | "payroll.settings"
-  | "report.export"
+  | "report.view"
   | "payment.view"
-  | "payment.mark_paid"
+  | "payment.record"
   | "audit.view"
   | "user.manage"
   | "rbac.manage"
@@ -261,9 +277,11 @@ export interface Database {
   positions: Position[];
   employees: Employee[];
   benefitTypes: BenefitType[];
-  budgets: AnnualBudget[];
+  benefitLimits: BenefitLimit[];
   fundRounds: FundRound[];
   claims: Claim[];
+  payments: Payment[];
+  changeRequests: ChangeRequest[];
   settings: Settings;
   rbac: RbacMatrix;
   auditLogs: AuditLog[];

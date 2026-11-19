@@ -5,7 +5,7 @@ import { Page } from "@/components/AppShell";
 import { Alert, Button, Card, Field, Input, SectionTitle, Select, useAction } from "@/components/ui";
 import { beYear, todayLocal } from "@/lib/domain/dates";
 import { payDateExplain } from "@/lib/domain/rules";
-import type { Holiday, Settings } from "@/lib/domain/types";
+import type { Holiday } from "@/lib/domain/types";
 import { dateLongTH, dateTH } from "@/lib/format";
 import { useDB } from "@/lib/hooks";
 import { api } from "@/lib/client/api";
@@ -16,11 +16,10 @@ export default function PayrollSettings() {
   const db = useDB();
   const act = useAction();
   const [cutoff, setCutoff] = useState(db.settings.cutoffDay);
-  const [mode, setMode] = useState<Settings["orgBudgetMode"]>(db.settings.orgBudgetMode);
   const [holidays, setHolidays] = useState<Holiday[]>(db.settings.holidays);
   const [nd, setNd] = useState({ date: "", name: "" });
   const [filterYear, setFilterYear] = useState(todayLocal().slice(0, 4));
-  const dirty = cutoff !== db.settings.cutoffDay || mode !== db.settings.orgBudgetMode || JSON.stringify(holidays) !== JSON.stringify(db.settings.holidays);
+  const dirty = cutoff !== db.settings.cutoffDay || JSON.stringify(holidays) !== JSON.stringify(db.settings.holidays);
 
   const today = todayLocal();
   const preview = Array.from({ length: 6 }, (_, i) => {
@@ -44,12 +43,6 @@ export default function PayrollSettings() {
           <Card className="space-y-3 p-4">
             <Field label="วันตัดรอบ (วันที่ของเดือน)" hint="1–28">
               <Input type="number" min={1} max={28} value={cutoff} onChange={(e) => setCutoff(Math.max(1, Math.min(28, Number(e.target.value) || 1)))} />
-            </Field>
-            <Field label="เมื่อยอดเบิกเกินงบประมาณองค์กร">
-              <Select value={mode} onChange={(e) => setMode(e.target.value as Settings["orgBudgetMode"])}>
-                <option value="warn">เตือน แต่ยังยื่นได้</option>
-                <option value="block">ไม่อนุญาตให้ยื่น</option>
-              </Select>
             </Field>
           </Card>
 
@@ -130,14 +123,13 @@ export default function PayrollSettings() {
             variant="secondary"
             onClick={() => {
               setCutoff(db.settings.cutoffDay);
-              setMode(db.settings.orgBudgetMode);
               setHolidays(db.settings.holidays);
             }}
           >
             ยกเลิกการแก้ไข
           </Button>
         )}
-        <Button disabled={!dirty} onClick={() => act(() => api.updatePayrollSettings({ cutoffDay: cutoff, holidays, orgBudgetMode: mode }), "บันทึกการตั้งค่าแล้ว")}>
+        <Button disabled={!dirty} onClick={() => act(() => api.updatePayrollSettings({ cutoffDay: cutoff, holidays }), "บันทึกการตั้งค่าแล้ว")}>
           บันทึกการตั้งค่า
         </Button>
       </div>

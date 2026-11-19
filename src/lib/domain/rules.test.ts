@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSeed, SEED_SETTINGS } from "../data/seed";
-import { approversFor, checkClaim, computePayDate, entitlementOf, orgBudgetOf, payDateExplain } from "./rules";
-import type { Claim } from "./types";
+import { canTransition, checkClaim, computeApproved, computePayDate, entitlementOf, findDuplicateReceipts, payDateExplain, paymentError, resolveLimit } from "./rules";
 
 const db = createSeed();
 const emp = (code: string) => db.employees.find((e) => e.code === code)!;
@@ -35,91 +34,111 @@ describe("computePayDate — รอบตัดและวันจ่าย", 
   });
 });
 
-describe("สิทธิ์และวงเงิน", () => {
+const ctx = { claims: db.claims, limits: db.benefitLimits, positions: db.positions };
+
+describe("วงเงินตามระดับตำแหน่ง (resolveLimit)", () => {
+  it("สวัสดิการเดียวกัน ระดับ 1 กับระดับ 4 ได้วงเงินต่างกัน", () => {
+    expect(resolveLimit(db.benefitLimits, "b-med", 1, TODAY)?.perYear).toBe(20000);
+    expect(resolveLimit(db.benefitLimits, "b-med", 4, TODAY)?.perYear).toBe(80000);
+  });
+  it("ใช้ฉบับล่าสุดที่มีผลแล้ว — ฉบับที่ยังไม่ถึงวันไม่ถูกใช้", () => {
+    const base = resolveLimit(db.benefitLimits, "b-med", 1, TODAY)!;
+    const later = { ...base, id: "new", perYear: 25000, effectiveFrom: "2026-11-01", createdAt: "2026-11-01T00:00:00Z" };
+    const future = { ...base, id: "future", perYear: 99999, effectiveFrom: "2027-01-01", createdAt: "2026-11-01T00:00:00Z" };
+    expect(resolveLimit([...db.benefitLimits, later, future], "b-med", 1, TODAY)?.perYear).toBe(25000);
+  });
+});
+
+describe("computeApproved — ตัดยอดตามวงเงิน", () => {
+  const opd = resolveLimit(db.benefitLimits, "b-opd", 1, TODAY);
+  it("ประกันส่วนเกิน วงเงิน 1,000/ครั้ง กรอก 1,500 → เบิกได้ 1,000", () => {
+    expect(computeApproved(1500, opd, 0, 0)).toEqual({ approved: 1000, reason: "เกินวงเงินต่อครั้ง" });
+  });
+  it("เกินวงเงินคงเหลือต่อปี", () => {
+    expect(computeApproved(2000, { perYear: 3000 }, 1500, 1)).toEqual({ approved: 1500, reason: "เกินวงเงินคงเหลือต่อปี" });
+  });
+  it("ใช้ครบจำนวนครั้ง / วงเงินหมด / ไม่มีวงเงิน → 0", () => {
+    expect(computeApproved(500, opd, 0, 30).approved).toBe(0);
+    expect(computeApproved(500, { perYear: 3000 }, 3000, 2).approved).toBe(0);
+    expect(computeApproved(500, null, 0, 0).approved).toBe(0);
+  });
+});
+
+describe("สิทธิ์และวงเงิน (entitlementOf)", () => {
   it("ประกันส่วนเกิน: นับครั้งรวมที่รอดำเนินการ", () => {
-    const e = entitlementOf(emp("EMP-0001"), ben("OPD"), db.claims, 2026, TODAY);
+    const e = entitlementOf(emp("EMP-0001"), ben("OPD"), ctx, 2026, TODAY);
     expect(e.usage.pendingTimes).toBe(2);
     expect(e.remainingTimes).toBe(28);
-    expect(e.maxNextClaim).toBe(1000);
   });
-  it("ค่ารักษา: หักยอดที่จ่ายแล้ว", () => {
-    const e = entitlementOf(emp("EMP-0001"), ben("MED"), db.claims, 2026, TODAY);
+  it("ค่ารักษา: หักยอดเบิกได้จริงที่จ่ายแล้ว", () => {
+    const e = entitlementOf(emp("EMP-0001"), ben("MED"), ctx, 2026, TODAY);
     expect(e.usage.usedAmount).toBe(2500);
     expect(e.remainingAmount).toBe(17500);
   });
   it("คำขอที่ไม่อนุมัติ = คืนสิทธิ์", () => {
-    const e = entitlementOf(emp("EMP-0004"), ben("MED"), db.claims, 2026, TODAY);
-    expect(e.remainingAmount).toBe(20000);
+    expect(entitlementOf(emp("EMP-0004"), ben("MED"), ctx, 2026, TODAY).remainingAmount).toBe(20000);
   });
-  it("วงเงินตามประเภทพนักงาน (สัญญาจ้าง 10,000)", () => {
-    const e = entitlementOf(emp("EMP-0003"), ben("MED"), db.claims, 2026, TODAY);
-    expect(e.annualLimit).toBe(10000);
-    expect(e.remainingAmount).toBe(8200);
+  it("ทดลองงานไม่มีสิทธิ์ค่ารักษา / อายุงานไม่ถึง", () => {
+    expect(entitlementOf(emp("EMP-0002"), ben("MED"), ctx, 2026, TODAY).eligible).toBe(false);
+    expect(entitlementOf({ ...emp("EMP-0001"), startDate: "2026-06-01" }, ben("EDU"), ctx, 2026, TODAY).eligible).toBe(false);
   });
-  it("ทดลองงานไม่มีสิทธิ์ค่ารักษา", () => {
-    const e = entitlementOf(emp("EMP-0002"), ben("MED"), db.claims, 2026, TODAY);
-    expect(e.eligible).toBe(false);
+  it("ยอดปีใหม่เริ่มต้นใหม่", () => {
+    expect(entitlementOf(emp("EMP-0001"), ben("MED"), ctx, 2027, "2027-01-10").remainingAmount).toBe(20000);
   });
-  it("อายุงานไม่ถึง 365 วัน → ไม่มีสิทธิ์ค่าเล่าเรียนบุตร", () => {
-    const e = { ...emp("EMP-0001"), startDate: "2026-06-01" };
-    expect(entitlementOf(e, ben("EDU"), db.claims, 2026, TODAY).eligible).toBe(false);
-  });
-  it("ยอดปีใหม่เริ่มต้นใหม่ (ตัดยอดตามปีปฏิทิน)", () => {
-    const e = entitlementOf(emp("EMP-0001"), ben("MED"), db.claims, 2027, "2027-01-10");
-    expect(e.remainingAmount).toBe(20000);
+  it("ย้ายตำแหน่งกลางปี: ใช้วงเงินระดับใหม่ ยอดที่ใช้แล้วนับต่อ", () => {
+    const promoted = { ...emp("EMP-0001"), positionId: "p-l4" };
+    const e = entitlementOf(promoted, ben("MED"), ctx, 2026, TODAY);
+    expect(e.perYear).toBe(80000);
+    expect(e.remainingAmount).toBe(80000 - 2500);
   });
 });
 
 describe("checkClaim — ตรวจกติกาทันที", () => {
-  const base = { employee: emp("EMP-0001"), today: TODAY, claims: db.claims };
-  it("เกินวงเงินต่อครั้ง", () => {
-    const r = checkClaim({ ...base, benefit: ben("OPD"), amount: 1500, receiptDate: "2026-10-29", docTypes: ["ใบเสร็จ"] });
-    expect(r.ok).toBe(false);
-    expect(r.errors).toContain("เบิกได้ไม่เกิน 1,000 บาท ต่อครั้ง");
+  const base = { employee: emp("EMP-0001"), today: TODAY, claims: db.claims, limits: db.benefitLimits, positions: db.positions, receiptNo: "R-1", vendorName: "ร้าน A" };
+  it("เกินวงเงินต่อครั้ง → ตัดยอด ไม่บล็อก", () => {
+    const r = checkClaim({ ...base, benefit: ben("OPD"), amountRequested: 1500, receiptDate: "2026-10-29", docTypes: ["ใบเสร็จ"] });
+    expect(r.ok).toBe(true);
+    expect(r.approved).toBe(1000);
+    expect(r.approvedReason).toBe("เกินวงเงินต่อครั้ง");
   });
-  it("ขาดเอกสาร", () => {
-    const r = checkClaim({ ...base, benefit: ben("MED"), amount: 500, receiptDate: "2026-10-29", docTypes: ["ใบเสร็จ"] });
-    expect(r.errors.some((x) => x.includes("ใบรับรองแพทย์"))).toBe(true);
+  it("ขาดเอกสาร / ขาดเลขใบเสร็จหรือร้าน", () => {
+    expect(checkClaim({ ...base, benefit: ben("MED"), amountRequested: 500, receiptDate: "2026-10-29", docTypes: ["ใบเสร็จ"] }).errors.some((x) => x.includes("ใบรับรองแพทย์"))).toBe(true);
+    expect(checkClaim({ ...base, receiptNo: " ", benefit: ben("OPD"), amountRequested: 500, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
+    expect(checkClaim({ ...base, vendorName: "", benefit: ben("OPD"), amountRequested: 500, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
   });
   it("วันที่ในอนาคต / เกินกำหนดยื่น", () => {
-    expect(checkClaim({ ...base, benefit: ben("OPD"), amount: 100, receiptDate: "2026-11-10", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
-    expect(checkClaim({ ...base, benefit: ben("OPD"), amount: 100, receiptDate: "2026-08-01", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
+    expect(checkClaim({ ...base, benefit: ben("OPD"), amountRequested: 100, receiptDate: "2026-11-10", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
+    expect(checkClaim({ ...base, benefit: ben("OPD"), amountRequested: 100, receiptDate: "2026-08-01", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
   });
-  it("ผ่านเมื่อครบเงื่อนไข", () => {
-    const r = checkClaim({ ...base, benefit: ben("OPD"), amount: 900, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] });
-    expect(r.ok).toBe(true);
-  });
-  it("ใช้ครบจำนวนครั้ง", () => {
-    const many: Claim[] = Array.from({ length: 30 }, (_, i) => ({
-      ...db.claims[1],
-      id: "x" + i,
-      status: "paid",
-    }));
-    const r = checkClaim({ ...base, claims: many, benefit: ben("OPD"), amount: 100, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] });
+  it("คนที่ใช้ครบ 30 ครั้งแล้ว ยื่นไม่ได้", () => {
+    const r = checkClaim({ ...base, employee: emp("EMP-0020"), benefit: ben("OPD"), amountRequested: 100, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] });
+    expect(r.ok).toBe(false);
+    expect(r.approved).toBe(0);
     expect(r.errors.some((x) => x.includes("ครบ 30 ครั้ง"))).toBe(true);
   });
   it("พนักงานพ้นสภาพยื่นไม่ได้", () => {
-    const r = checkClaim({ ...base, employee: emp("EMP-0005"), benefit: ben("DEN"), amount: 100, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] });
-    expect(r.ok).toBe(false);
+    expect(checkClaim({ ...base, employee: emp("EMP-0005"), benefit: ben("DEN"), amountRequested: 100, receiptDate: "2026-11-01", docTypes: ["ใบเสร็จ"] }).ok).toBe(false);
   });
 });
 
-describe("งบประมาณองค์กร และผู้อนุมัติ", () => {
-  it("งบอัตโนมัติ = จำนวนคนมีสิทธิ์ × วงเงิน", () => {
-    const b = orgBudgetOf(ben("DEN"), 2026, db.employees, db.claims, [], TODAY);
-    expect(b.auto).toBe(true);
-    expect(b.budget).toBe(b.eligibleCount * 3000);
-    expect(b.used).toBe(1200);
+describe("ใบเสร็จซ้ำ / การจ่าย / ลำดับสถานะ", () => {
+  it("เลขใบเสร็จ + ร้านเดียวกัน = ซ้ำ (ไม่สนตัวพิมพ์/ช่องว่าง)", () => {
+    const c9 = db.claims.find((c) => c.id === "c-0009")!;
+    expect(findDuplicateReceipts(db.claims, c9).map((c) => c.id)).toEqual(["c-0003"]);
+    expect(findDuplicateReceipts(db.claims, { ...c9, vendorName: " คลินิกทันตกรรม  ยิ้มสวย" })).toHaveLength(0);
   });
-  it("งบที่ HR กำหนดทับค่าอัตโนมัติ", () => {
-    const b = orgBudgetOf(ben("DEN"), 2026, db.employees, db.claims, [{ id: "x", year: 2026, benefitTypeId: "b-den", amount: 5000 }], TODAY);
-    expect(b.budget).toBe(5000);
-    expect(b.remaining).toBe(3800);
+  it("บังคับข้อมูลตามวิธีจ่าย และห้ามวันในอนาคต", () => {
+    expect(paymentError({ method: "cheque", paidAt: TODAY, chequeDate: TODAY }, TODAY)).toContain("เลขที่เช็ค");
+    expect(paymentError({ method: "cheque", paidAt: TODAY, chequeNo: "1" }, TODAY)).toContain("วันที่บนเช็ค");
+    expect(paymentError({ method: "transfer", paidAt: TODAY }, TODAY)).toContain("อ้างอิง");
+    expect(paymentError({ method: "cash", paidAt: "2026-12-01" }, TODAY)).toContain("อนาคต");
+    expect(paymentError({ method: "cash", paidAt: TODAY }, TODAY)).toBeNull();
   });
-  it("ผู้อนุมัติสำรองตามช่วงวัน", () => {
-    const emps = structuredClone(db.employees);
-    emps.find((e) => e.id === "e-0020")!.delegation = { employeeId: "e-0040", from: "2026-11-01", to: "2026-11-10" };
-    expect(approversFor(emps.find((e) => e.id === "e-0001")!, emps, TODAY)).toEqual(["e-0020", "e-0040"]);
-    expect(approversFor(emps.find((e) => e.id === "e-0001")!, emps, "2026-11-20")).toEqual(["e-0020"]);
+  it("เปลี่ยนสถานะได้ตามลำดับเท่านั้น", () => {
+    expect(canTransition("approve", "pending_hr")).toBe(true);
+    expect(canTransition("approve", "returned")).toBe(false);
+    expect(canTransition("mark_paid", "pending_hr")).toBe(false);
+    expect(canTransition("resubmit", "returned")).toBe(true);
+    expect(canTransition("reject", "approved")).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { ACCEPTED_FILE_TYPES, EMPLOYMENT_TYPE_LABEL, MAX_FILE_SIZE, STATUS_LABEL } from "@/lib/domain/constants";
 import type { AttachmentMeta, BenefitType, Claim, ClaimStatus, Database } from "@/lib/domain/types";
 import { fetchFile, uploadFile } from "@/lib/client/api";
-import { claimValue, type Entitlement } from "@/lib/domain/rules";
+import type { Entitlement } from "@/lib/domain/rules";
 import { cx, dateTH, dateTimeTH, fileSize, money } from "@/lib/format";
 import { fullName } from "@/lib/services/core";
 import { Alert, Badge, Button, Card, Modal, Select, useToast } from "./ui";
@@ -13,12 +13,16 @@ import { Alert, Badge, Button, Card, Modal, Select, useToast } from "./ui";
 const STATUS_TONE: Record<ClaimStatus, "gray" | "amber" | "blue" | "green" | "red" | "orange" | "violet"> = {
   pending_hr: "amber",
   returned: "orange",
-  pending_manager: "blue",
   approved: "violet",
   paid: "green",
   rejected: "red",
-  cancelled: "gray",
 };
+
+/** ยอดที่แสดงบนการ์ด: ยอดเบิกได้จริง (โหมด HR กำหนดยอด = ยังไม่กำหนดจนกว่าอนุมัติ) */
+export function claimAmountText(c: Claim, b?: BenefitType) {
+  if (b?.mode === "assigned" && !c.amountApproved) return null;
+  return money(c.amountApproved);
+}
 
 export function StatusBadge({ status }: { status: ClaimStatus }) {
   return <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status]}</Badge>;
@@ -28,7 +32,8 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
   const b = db.benefitTypes.find((x) => x.id === c.benefitTypeId);
   const e = db.employees.find((x) => x.id === c.employeeId);
   const dept = db.departments.find((d) => d.id === e?.departmentId);
-  const value = claimValue(c, b);
+  const amount = claimAmountText(c, b);
+  const cut = b?.mode !== "assigned" && c.amountApproved < c.amountRequested;
   const body = (
     <Card className={cx("p-4 transition hover:border-zinc-300", selected && "border-brand-500 ring-4 ring-brand-500/10")}>
       <div className="flex items-start justify-between gap-3">
@@ -46,9 +51,11 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
         <StatusBadge status={c.status} />
       </div>
       <div className="mt-3 flex items-end justify-between gap-2">
-        <p className="text-lg font-semibold tabular">{b?.mode === "assigned" && c.assignedAmount == null ? <span className="text-sm text-zinc-500">รอ HR กำหนดยอด</span> : money(value)}</p>
+        <div>
+          <p className="text-lg font-semibold tabular">{amount ?? <span className="text-sm text-zinc-500">รอ HR กำหนดยอด</span>}</p>
+          {cut && <p className="text-[11px] text-zinc-500 tabular">ขอเบิก {money(c.amountRequested)}</p>}
+        </div>
         <div className="text-right text-xs">
-          {c.filedById && <Badge tone="gray">HR ยื่นแทน</Badge>}
           {c.payDate && c.status === "approved" && <p className="text-violet-700">กำหนดจ่าย {dateTH(c.payDate)}</p>}
           {c.status === "paid" && <p className="text-emerald-700">เงินเข้า {dateTH(c.payDate)}</p>}
           {c.status === "returned" && <p className="text-brand-700">ต้องแก้ไข</p>}
@@ -74,15 +81,16 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
 const ACTION_LABEL: Record<string, string> = {
   submit: "ยื่นคำขอ",
   resubmit: "แก้ไขแล้วส่งใหม่",
-  hr_pass: "HR ตรวจผ่าน ส่งต่อหัวหน้า",
-  hr_return: "HR ส่งกลับแก้ไข",
-  hr_reject: "HR ปฏิเสธคำขอ (คืนสิทธิ์)",
-  assign_amount: "HR กำหนดเงินช่วยเหลือ",
+  edit: "แก้ไขคำขอ",
   approve: "อนุมัติ",
   reject: "ไม่อนุมัติ (คืนสิทธิ์)",
-  mark_paid: "บันทึกจ่ายเงินแล้ว",
+  return: "ส่งกลับแก้ไข",
+  mark_paid: "บันทึกการจ่ายเงิน",
+  change_result: "แก้ผลตามคำขอแก้ไข (หัวหน้า HR อนุมัติ)",
+  // ข้อมูลเก่าก่อนปรับระบบ
+  hr_pass: "HR ตรวจผ่าน",
+  assign_amount: "HR กำหนดเงินช่วยเหลือ",
   cancel: "ยกเลิกคำขอ",
-  edit: "แก้ไขคำขอ",
 };
 
 export function Timeline({ c, db }: { c: Claim; db: Database }) {
@@ -249,22 +257,25 @@ export function AttachmentPicker({ value, onChange, requiredDocs }: { value: Att
 
 export function EntitlementBox({ ent, benefit }: { ent: Entitlement; benefit: BenefitType }) {
   const lines: string[] = [];
-  if (ent.annualLimit != null) lines.push(`วงเงิน ${money(ent.annualLimit)}/ปี`);
-  if (ent.perClaimLimit != null) lines.push(`สูงสุด ${money(ent.perClaimLimit)} ต่อครั้ง`);
-  if (ent.maxTimesPerYear != null) lines.push(`${ent.maxTimesPerYear} ครั้ง/ปี`);
+  if (ent.perClaim != null) lines.push(`ต่อครั้ง ${money(ent.perClaim)}`);
+  if (ent.perYear != null) lines.push(`ต่อปี ${money(ent.perYear)}`);
+  if (ent.maxCount != null) lines.push(`${ent.maxCount} ครั้ง/ปี`);
   const headline =
     benefit.mode === "assigned"
       ? "HR เป็นผู้กำหนดยอดเงินช่วยเหลือ"
-      : ent.remainingAmount != null
-        ? money(ent.remainingAmount)
-        : ent.remainingTimes != null
-          ? `${ent.remainingTimes} ครั้ง`
-          : "ไม่จำกัด";
+      : !ent.limit
+        ? "ไม่มีวงเงินสำหรับระดับของคุณ"
+        : ent.remainingAmount != null
+          ? money(ent.remainingAmount)
+          : ent.remainingTimes != null
+            ? `${ent.remainingTimes} ครั้ง`
+            : "ไม่จำกัด";
   return (
     <div className="rounded-2xl bg-ink-900 p-4 text-white">
-      <p className="text-xs text-zinc-400">สิทธิ์คงเหลือปีนี้</p>
+      <p className="text-xs text-zinc-400">สิทธิ์คงเหลือปีนี้ · ระดับ {ent.level}</p>
       <p className="mt-0.5 text-xl font-semibold">{headline}</p>
       <p className="mt-0.5 text-xs text-zinc-400">{lines.join(" · ") || "ไม่จำกัดวงเงิน"}</p>
+      {ent.remainingAmount != null && ent.remainingTimes != null && <p className="mt-0.5 text-xs text-zinc-400">เหลือ {ent.remainingTimes} ครั้ง</p>}
       {ent.usage.pendingAmount > 0 || ent.usage.pendingTimes > 0 ? (
         <p className="mt-2 text-xs text-amber-300">
           อยู่ระหว่างดำเนินการ {ent.usage.pendingTimes} รายการ{benefit.mode === "claim" ? ` (${money(ent.usage.pendingAmount)})` : ""} — นับรวมในยอดใช้แล้ว
@@ -307,60 +318,65 @@ export function CheckList({ errors, warnings }: { errors: string[]; warnings?: s
   );
 }
 
-export function PinDialog({ open, onClose, onConfirm, amountText }: { open: boolean; onClose: () => void; onConfirm: (pin: string) => Promise<boolean>; amountText: string }) {
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
+/** Dialog ยืนยันสำหรับทุกปุ่มที่กระทบเงิน — แสดงเลขคำขอ + ยอดเงินก่อนกดยืนยัน */
+export function ConfirmMoneyDialog({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  claimNo,
+  amount,
+  detail,
+  confirmLabel,
+  tone = "success",
+  disabled,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<boolean> | void;
+  title: string;
+  claimNo?: string;
+  amount?: number | null;
+  detail?: React.ReactNode;
+  confirmLabel: string;
+  tone?: "success" | "danger" | "primary";
+  disabled?: boolean;
+  children?: React.ReactNode;
+}) {
   const [busy, setBusy] = useState(false);
-  const close = () => {
-    setPin("");
-    setErr("");
-    onClose();
-  };
   const submit = async () => {
     setBusy(true);
-    const ok = await onConfirm(pin);
+    const ok = await onConfirm();
     setBusy(false);
-    if (ok) close();
-    else {
-      setErr("PIN ไม่ถูกต้อง");
-      setPin("");
-    }
+    if (ok !== false) onClose();
   };
   return (
     <Modal
       open={open}
-      onClose={close}
-      title="ยืนยันตัวตน"
+      onClose={onClose}
+      title={title}
       size="sm"
       footer={
         <>
-          <Button variant="secondary" onClick={close}>
-            ย้อนกลับ
+          <Button variant="secondary" onClick={onClose}>
+            ยกเลิก
           </Button>
-          <Button variant="success" disabled={pin.length < 4} loading={busy} onClick={submit}>
-            ยืนยันอนุมัติ
+          <Button variant={tone} disabled={disabled} loading={busy} onClick={submit}>
+            {confirmLabel}
           </Button>
         </>
       }
     >
-      <div className="py-2 text-center">
-        <Shield className="mx-auto size-10 text-brand-500" />
-        <p className="mt-3 text-sm text-zinc-600">กรอก PIN เพื่อยืนยันการอนุมัติ {amountText}</p>
-        <input
-          autoFocus
-          inputMode="numeric"
-          type="password"
-          maxLength={6}
-          value={pin}
-          onChange={(e) => {
-            setErr("");
-            setPin(e.target.value.replace(/\D/g, ""));
-          }}
-          onKeyDown={(e) => e.key === "Enter" && pin.length >= 4 && !busy && submit()}
-          aria-label="PIN"
-          className="mx-auto mt-4 block h-14 w-44 rounded-2xl border-2 border-brand-200 text-center text-2xl tracking-[0.5em] focus:border-brand-500 focus:outline-none"
-        />
-        <p className={cx("mt-2 text-xs", err ? "text-red-600" : "text-zinc-400")}>{err || "PIN เดโม: 1234"}</p>
+      <div className="space-y-3">
+        {(claimNo || amount != null) && (
+          <div className="rounded-2xl bg-zinc-50 p-4 text-center">
+            {claimNo && <p className="text-sm text-zinc-500">เลขคำขอ {claimNo}</p>}
+            {amount != null && <p className="mt-1 text-2xl font-semibold tabular">{money(amount)}</p>}
+          </div>
+        )}
+        {detail && <div className="text-sm text-zinc-600">{detail}</div>}
+        {children}
       </div>
     </Modal>
   );
@@ -379,7 +395,7 @@ export function ClaimRowLink({ c, db, href }: { c: Claim; db: Database; href: st
           {c.no} · ยื่น {dateTimeTH(c.submittedAt)}
         </p>
       </div>
-      <span className="text-sm font-medium tabular">{b?.mode === "assigned" && c.assignedAmount == null ? <span className="text-xs text-zinc-500">รอกำหนดยอด</span> : money(claimValue(c, b))}</span>
+      <span className="text-sm font-medium tabular">{claimAmountText(c, b) ?? <span className="text-xs text-zinc-500">รอกำหนดยอด</span>}</span>
       <StatusBadge status={c.status} />
       <ChevronRight className="size-4 text-zinc-300" />
     </Link>

@@ -6,7 +6,6 @@ import { ClaimRowLink } from "@/components/claims";
 import { Button, Card, Empty, Input, Select } from "@/components/ui";
 import { STATUS_LABEL } from "@/lib/domain/constants";
 import { beYear, todayLocal, yearOf } from "@/lib/domain/dates";
-import { claimValue } from "@/lib/domain/rules";
 import type { ClaimStatus } from "@/lib/domain/types";
 import { dateTH, downloadCSV, money } from "@/lib/format";
 import { useCan, useDB } from "@/lib/hooks";
@@ -30,31 +29,34 @@ export default function AllClaims() {
       if (benefit && c.benefitTypeId !== benefit) return false;
       if (dept && e?.departmentId !== dept) return false;
       if (year && yearOf(c.receiptDate) !== Number(year)) return false;
-      if (s && !`${c.no} ${e?.code} ${fullName(e)}`.toLowerCase().includes(s)) return false;
+      if (s && !`${c.no} ${e?.code} ${fullName(e)} ${c.receiptNo} ${c.vendorName}`.toLowerCase().includes(s)) return false;
       return true;
     });
   }, [db, q, status, benefit, dept, year]);
-  const total = list.reduce((s, c) => s + claimValue(c, db.benefitTypes.find((b) => b.id === c.benefitTypeId)), 0);
+  const total = list.reduce((s, c) => s + c.amountApproved, 0);
 
   const exportCsv = () =>
     downloadCSV(`claims-${year || "all"}.csv`, [
-      ["เลขที่", "รหัสพนักงาน", "ชื่อ-นามสกุล", "แผนก", "ประเภทสวัสดิการ", "จำนวนเงิน", "วันที่ในเอกสาร", "วันที่ยื่น", "สถานะ", "ยื่นแทนโดย", "วันจ่าย", "อ้างอิงการจ่าย"],
+      ["เลขที่", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ฝ่าย", "ประเภทสวัสดิการ", "เลขใบเสร็จ", "ร้าน", "ยอดขอ", "ยอดได้จริง", "วันที่ในเอกสาร", "วันที่ยื่น", "สถานะ", "วันจ่าย", "อ้างอิงการจ่าย"],
       ...list.map((c) => {
         const e = db.employees.find((x) => x.id === c.employeeId);
         const b = db.benefitTypes.find((x) => x.id === c.benefitTypeId);
+        const p = db.payments.find((x) => x.claimId === c.id);
         return [
           c.no,
           e?.code,
           fullName(e),
           db.departments.find((d) => d.id === e?.departmentId)?.name,
           b?.name,
-          claimValue(c, b),
+          c.receiptNo,
+          c.vendorName,
+          c.amountRequested,
+          c.amountApproved,
           c.receiptDate,
           c.submittedAt.slice(0, 10),
           STATUS_LABEL[c.status],
-          c.filedById ? fullName(db.employees.find((x) => x.id === c.filedById)) : "",
-          c.payDate ?? "",
-          c.paymentRef ?? "",
+          p?.paidAt ?? c.payDate ?? "",
+          p?.transferRef ?? p?.chequeNo ?? "",
         ];
       }),
     ]);
@@ -64,7 +66,7 @@ export default function AllClaims() {
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <div className="relative lg:col-span-2">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาเลขที่ / รหัส / ชื่อ" className="pl-9" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาเลขที่ / รหัส / ชื่อ / ใบเสร็จ / ร้าน" className="pl-9" />
         </div>
         <Select value={status} onChange={(e) => setStatus(e.target.value as ClaimStatus | "")} aria-label="สถานะ">
           <option value="">ทุกสถานะ</option>
@@ -84,7 +86,7 @@ export default function AllClaims() {
         </Select>
         <div className="flex gap-2">
           <Select value={dept} onChange={(e) => setDept(e.target.value)} aria-label="แผนก">
-            <option value="">ทุกแผนก</option>
+            <option value="">ทุกฝ่าย</option>
             {db.departments.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
@@ -105,7 +107,7 @@ export default function AllClaims() {
         <span className="text-zinc-500">
           {list.length} รายการ · รวม {money(total)}
         </span>
-        {can("report.export") && (
+        {can("report.view") && (
           <Button variant="secondary" size="sm" icon={<Download className="size-4" />} onClick={exportCsv} disabled={!list.length}>
             Export CSV
           </Button>

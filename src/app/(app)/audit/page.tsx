@@ -7,32 +7,53 @@ import { Alert, Button, Card, Empty, Input, Select } from "@/components/ui";
 import type { AuditLog } from "@/lib/domain/types";
 import { downloadCSV } from "@/lib/format";
 import { fetchAudit } from "@/lib/client/api";
-import { useAsync, useCan, useDB } from "@/lib/hooks";
+import { useAsync, useDB } from "@/lib/hooks";
 import { fullName } from "@/lib/services/core";
 
 const ENTITY_LABEL: Record<AuditLog["entity"], string> = {
   claim: "คำขอ",
   payment: "การจ่ายเงิน",
+  change_request: "คำขอแก้ไข",
   employee: "พนักงาน",
   benefit: "สวัสดิการ",
-  budget: "งบประมาณ",
+  benefit_limit: "วงเงิน",
   fund: "รอบงบ",
   settings: "ตั้งค่า",
   rbac: "สิทธิ์/Role",
-  department: "แผนก",
+  department: "ฝ่าย",
   position: "ตำแหน่ง",
   auth: "การเข้าสู่ระบบ",
   system: "ระบบ",
 };
-/** ผู้ที่ไม่มีสิทธิ์ดูข้อมูลพนักงาน (เช่น บัญชี) เห็นเฉพาะ log ด้านการเงิน */
-const FINANCE_SCOPE: AuditLog["entity"][] = ["claim", "payment", "budget", "fund"];
+
+const ACTION_LABEL: Record<string, string> = {
+  submit: "ยื่นคำขอ",
+  update: "แก้ไข",
+  resubmit: "แก้ไขแล้วส่งใหม่",
+  approve: "อนุมัติ",
+  reject: "ไม่อนุมัติ",
+  return: "ส่งกลับแก้ไข",
+  record_payment: "บันทึกการจ่าย",
+  change_request: "ส่งคำขอแก้ไข",
+  change_approve: "อนุมัติคำขอแก้ไข",
+  change_reject: "ปฏิเสธคำขอแก้ไข",
+  create: "เพิ่มข้อมูล",
+  delete: "ลบข้อมูล",
+  activate: "เปิดสถานะ",
+  deactivate: "ปิดสถานะ",
+  role_change: "เปลี่ยน Role",
+  login: "เข้าสู่ระบบ",
+  login_failed: "เข้าสู่ระบบไม่สำเร็จ",
+  reset_password: "รีเซ็ต/เปลี่ยนรหัสผ่าน",
+  backup: "สำรองข้อมูล",
+  restore: "กู้คืนข้อมูล",
+};
 
 export default function AuditPage() {
   const db = useDB();
-  const can = useCan();
-  const full = can("employee.view") || can("system.manage");
   const [q, setQ] = useState("");
   const [entity, setEntity] = useState<"" | AuditLog["entity"]>("");
+  const [action, setAction] = useState("");
   const [actor, setActor] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -44,7 +65,7 @@ export default function AuditPage() {
     const t = setTimeout(() => setQDebounced(q.trim()), 300);
     return () => clearTimeout(t);
   }, [q]);
-  const query = { q: qDebounced, entity, actor, from, to, limit };
+  const query = { q: qDebounced, entity, action, actor, from, to, limit };
   const res = useAsync(() => fetchAudit(query), [JSON.stringify(query), db]);
   const list = res.data?.items ?? [];
   const total = res.data?.total ?? 0;
@@ -59,25 +80,29 @@ export default function AuditPage() {
 
   return (
     <Page title="Audit Log" perm="audit.view" wide>
-      {!full && (
-        <Alert tone="info" className="mb-3">
-          แสดงเฉพาะประวัติด้านคำขอ การจ่ายเงิน และงบประมาณ (สิทธิ์ของฝ่ายบัญชี)
-        </Alert>
-      )}
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_160px_200px_150px_150px]">
+      <Alert tone="info" className="mb-3">
+        บันทึกแบบเพิ่มได้อย่างเดียว — แก้ไขหรือลบไม่ได้ · เก็บเฉพาะฟิลด์ที่เปลี่ยน · ไม่เก็บข้อมูลสุขภาพ (PDPA)
+      </Alert>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-[1fr_150px_170px_200px_140px_140px]">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหา เช่น CLM-2569-0001, EMP-0003" className="pl-9" />
         </div>
         <Select value={entity} onChange={(e) => setEntity(e.target.value as AuditLog["entity"] | "")} aria-label="ประเภทข้อมูล">
           <option value="">ทุกประเภท</option>
-          {(Object.keys(ENTITY_LABEL) as AuditLog["entity"][])
-            .filter((k) => full || FINANCE_SCOPE.includes(k))
-            .map((k) => (
-              <option key={k} value={k}>
-                {ENTITY_LABEL[k]}
-              </option>
-            ))}
+          {(Object.keys(ENTITY_LABEL) as AuditLog["entity"][]).map((k) => (
+            <option key={k} value={k}>
+              {ENTITY_LABEL[k]}
+            </option>
+          ))}
+        </Select>
+        <Select value={action} onChange={(e) => setAction(e.target.value)} aria-label="Action">
+          <option value="">ทุก Action</option>
+          {(res.data?.actions ?? Object.keys(ACTION_LABEL)).map((a) => (
+            <option key={a} value={a}>
+              {ACTION_LABEL[a] ?? a}
+            </option>
+          ))}
         </Select>
         <Select value={actor} onChange={(e) => setActor(e.target.value)} aria-label="ผู้ดำเนินการ">
           <option value="">ผู้ดำเนินการทั้งหมด</option>

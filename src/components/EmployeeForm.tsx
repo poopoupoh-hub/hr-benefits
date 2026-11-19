@@ -27,7 +27,7 @@ export function EmployeeForm({ initial, onClose }: { initial: Employee | null; o
           phone: initial.phone ?? "",
           departmentId: initial.departmentId,
           positionId: initial.positionId,
-          managerId: initial.managerId,
+          supervisorId: initial.supervisorId,
           employmentType: initial.employmentType,
           startDate: initial.startDate,
           contractEndDate: initial.contractEndDate ?? "",
@@ -40,7 +40,7 @@ export function EmployeeForm({ initial, onClose }: { initial: Employee | null; o
           phone: "",
           departmentId: db.departments[0]?.id ?? "",
           positionId: "",
-          managerId: null,
+          supervisorId: null,
           employmentType: "probation",
           startDate: todayLocal(),
           contractEndDate: "",
@@ -49,8 +49,8 @@ export function EmployeeForm({ initial, onClose }: { initial: Employee | null; o
   const can = useCan();
   const [role, setRole] = useState<Role>("employee");
   const set = <K extends keyof EmployeeInput>(k: K, v: EmployeeInput[K]) => setF((x) => ({ ...x, [k]: v }));
-  const positions = db.positions.filter((p) => p.departmentId === f.departmentId);
-  const managers = db.employees.filter((e) => e.active && e.id !== initial?.id && (e.role === "manager" || db.rbac[e.role].includes("claim.approve")));
+  const positions = [...db.positions].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  const supervisors = db.employees.filter((e) => e.active && e.id !== initial?.id);
   const save = () => {
     act(() => (initial ? api.updateEmployee(initial.id, f) : api.createEmployee({ ...f, role })), initial ? "บันทึกการแก้ไขแล้ว (บันทึกประวัติ)" : "เพิ่มพนักงานแล้ว — รหัสผ่านเริ่มต้น 1234").then((ok) => ok && onClose());
   };
@@ -94,14 +94,8 @@ export function EmployeeForm({ initial, onClose }: { initial: Employee | null; o
         <Field label="เบอร์โทร">
           <Input value={f.phone ?? ""} onChange={(e) => set("phone", e.target.value)} />
         </Field>
-        <Field label="แผนก" required>
-          <Select
-            value={f.departmentId}
-            onChange={(e) => {
-              set("departmentId", e.target.value);
-              set("positionId", "");
-            }}
-          >
+        <Field label="ฝ่าย" required>
+          <Select value={f.departmentId} onChange={(e) => set("departmentId", e.target.value)}>
             {db.departments.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
@@ -109,20 +103,20 @@ export function EmployeeForm({ initial, onClose }: { initial: Employee | null; o
             ))}
           </Select>
         </Field>
-        <Field label="ตำแหน่ง" required>
+        <Field label="ตำแหน่ง / ระดับ" required hint="ระดับกำหนดวงเงินสวัสดิการ — ย้ายระดับกลางปี ยอดที่ใช้ไปแล้วนับต่อ">
           <Select value={f.positionId} onChange={(e) => set("positionId", e.target.value)}>
             <option value="">— เลือก —</option>
             {positions.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                ระดับ {p.level} · {p.name}
               </option>
             ))}
           </Select>
         </Field>
-        <Field label="หัวหน้างาน (ผู้อนุมัติ)" className="sm:col-span-2">
-          <Select value={f.managerId ?? ""} onChange={(e) => set("managerId", e.target.value || null)}>
+        <Field label="หัวหน้างาน" className="sm:col-span-2">
+          <Select value={f.supervisorId ?? ""} onChange={(e) => set("supervisorId", e.target.value || null)}>
             <option value="">— ไม่มี (ระดับสูงสุด) —</option>
-            {managers.map((m) => (
+            {supervisors.map((m) => (
               <option key={m.id} value={m.id}>
                 {fullName(m)} · {db.positions.find((p) => p.id === m.positionId)?.name}
               </option>

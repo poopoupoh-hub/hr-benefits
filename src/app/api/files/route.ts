@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   try {
     assertSameOrigin(req);
     const { me, db } = await requireUserWithDb(req);
-    if (!can(db, me, "self.claim") && !can(db, me, "claim.file_on_behalf")) throw new HttpError(403, "คุณไม่มีสิทธิ์แนบเอกสาร");
+    if (!can(db, me, "self.claim")) throw new HttpError(403, "คุณไม่มีสิทธิ์แนบเอกสาร");
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) throw new HttpError(400, "ไม่พบไฟล์");

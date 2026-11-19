@@ -21,16 +21,15 @@ model Department {
   id        String     @id
   code      String     @unique
   name      String
-  positions Position[]
   employees Employee[]
 }
 
+/// ตำแหน่ง/ระดับ — แยกจากฝ่าย; level 1 เจ้าหน้าที่, 2 ผู้ช่วยผู้จัดการ, 3 ผู้จัดการ, 4 ผู้บริหาร
 model Position {
-  id           String     @id
-  name         String
-  departmentId String
-  department   Department @relation(fields: [departmentId], references: [id])
-  employees    Employee[]
+  id        String     @id
+  name      String
+  level     Int        @default(1)
+  employees Employee[]
 }
 
 model Employee {
@@ -44,23 +43,18 @@ model Employee {
   department      Department @relation(fields: [departmentId], references: [id])
   positionId      String
   position        Position   @relation(fields: [positionId], references: [id])
-  managerId       String?
-  manager         Employee?  @relation("ManagerReports", fields: [managerId], references: [id])
-  reports         Employee[] @relation("ManagerReports")
+  supervisorId    String?
+  supervisor      Employee?  @relation("Supervision", fields: [supervisorId], references: [id])
+  subordinates    Employee[] @relation("Supervision")
   /// permanent | probation | contract | terminated
   employmentType  String
   startDate       String
   contractEndDate String?
-  /// employee | manager | hr | finance | admin
+  /// employee | hr | hr_head | finance | admin
   role            String     @default("employee")
   active          Boolean    @default(true)
   /// scrypt hash
   passwordHash    String
-  /// scrypt hash
-  pinHash         String
-  delegateId      String?
-  delegateFrom    String?
-  delegateTo      String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime
   claims          Claim[]
@@ -70,16 +64,13 @@ model BenefitType {
   id              String          @id
   code            String          @unique
   name            String
+  /// หมวด ใช้จัดกลุ่มใน Dropdown
+  category        String          @default("อื่น ๆ")
   description     String?
   /// claim (พนักงานแจ้งยอด) | assigned (HR กำหนดยอด)
   mode            String          @default("claim")
-  annualLimit     Decimal?
-  perClaimLimit   Decimal?
-  maxTimesPerYear Int?
   /// JSON: EmploymentType[]
   eligibleTypes   String
-  /// JSON: { [EmploymentType]: { annualLimit, perClaimLimit, maxTimesPerYear } }
-  typeOverrides   String          @default("{}")
   /// JSON: string[]
   requiredDocs    String
   minServiceDays  Int?
@@ -88,20 +79,25 @@ model BenefitType {
   active          Boolean         @default(true)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime
-  budgets         AnnualBudget[]
+  limits          BenefitLimit[]
   fundRounds      FundRound[]
   claims          Claim[]
 }
 
-model AnnualBudget {
+/// วงเงินตามระดับตำแหน่ง — เพิ่มแถวใหม่เมื่อเปลี่ยน (ไม่แก้ทับ) ใช้ฉบับล่าสุดที่มีผลแล้ว
+model BenefitLimit {
   id            String      @id
-  year          Int
-  benefitTypeId String
-  benefitType   BenefitType @relation(fields: [benefitTypeId], references: [id])
-  /// null = คำนวณอัตโนมัติ
-  amount        Decimal?
+  benefitId     String
+  benefit       BenefitType @relation(fields: [benefitId], references: [id])
+  minLevel      Int
+  maxLevel      Int
+  perClaim      Decimal?
+  perYear       Decimal?
+  maxCount      Int?
+  effectiveFrom String
+  createdAt     DateTime    @default(now())
 
-  @@unique([year, benefitTypeId])
+  @@index([benefitId, effectiveFrom])
 }
 
 model FundRound {
@@ -128,26 +124,29 @@ model Claim {
   benefitType    BenefitType       @relation(fields: [benefitTypeId], references: [id])
   fundRoundId    String?
   fundRound      FundRound?        @relation(fields: [fundRoundId], references: [id])
-  amount         Decimal           @default(0)
-  assignedAmount Decimal?
-  receiptDate    String
-  note           String?
-  /// pending_hr | returned | pending_manager | approved | paid | rejected | cancelled
-  status         String
-  submittedAt    DateTime
-  filedById      String?
-  filedReason    String?
-  docsCompleteAt DateTime?
-  approverId     String?
-  approvedAt     DateTime?
-  payDate        String?
-  paidAt         DateTime?
-  paidById       String?
-  paymentRef     String?
-  rejectReason   String?
-  returnReason   String?
-  attachments    ClaimAttachment[]
-  events         ClaimEvent[]
+  /// เลขที่ใบเสร็จ
+  receiptNo       String            @default("")
+  /// ร้าน / บริษัท / โรงพยาบาล
+  vendorName      String            @default("")
+  /// ยอดตามใบเสร็จ
+  amountRequested Decimal           @default(0)
+  /// ยอดเบิกได้จริง
+  amountApproved  Decimal           @default(0)
+  receiptDate     String
+  note            String?
+  /// pending_hr | returned | rejected | approved | paid
+  status          String
+  submittedAt     DateTime
+  decidedById     String?
+  decidedAt       DateTime?
+  payDate         String?
+  rejectReason    String?
+  returnReason    String?
+  attachments     ClaimAttachment[]
+  events          ClaimEvent[]
+  payment         Payment?
+
+  @@index([receiptNo, vendorName])
 
   @@index([employeeId, benefitTypeId, status])
   @@index([status, payDate])
@@ -180,6 +179,45 @@ model ClaimEvent {
   note       String?
 
   @@index([claimId, seq])
+}
+
+/// บันทึกการจ่ายเงินรายคำขอ
+model Payment {
+  claimId     String   @id
+  claim       Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  /// cash | transfer | cheque
+  method      String
+  paidAt      String
+  transferRef String?
+  chequeNo    String?
+  chequeDate  String?
+  recordedBy  String
+  recordedAt  DateTime
+  note        String?
+}
+
+/// คำขอแก้ไข (Maker–Checker) — HR ขอ หัวหน้า HR อนุมัติ
+model ChangeRequest {
+  id           String    @id
+  /// claim_status | benefit_limit
+  kind         String
+  targetId     String
+  /// JSON
+  before       String
+  /// JSON
+  after        String
+  reason       String
+  requestedBy  String
+  requestedAt  DateTime
+  /// pending | approved | rejected
+  status       String
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  selfApproved Boolean   @default(false)
+
+  @@index([status])
+  @@index([targetId])
 }
 
 /// ไฟล์จริงที่อัปโหลด (เก็บบนดิสก์ แยกจากฐานข้อมูลหลัก)

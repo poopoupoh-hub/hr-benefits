@@ -15,7 +15,7 @@ export default function UsersPage() {
   const act = useAction();
   const [q, setQ] = useState("");
   const [role, setRole] = useState<"" | Role>("");
-  const [cred, setCred] = useState<{ u: Employee; kind: "password" | "pin"; value: string } | null>(null);
+  const [cred, setCred] = useState<{ u: Employee; value: string } | null>(null);
   const [create, setCreate] = useState(false);
   const s = q.trim().toLowerCase();
   const list = db.employees.filter((e) => (!role || e.role === role) && (!s || `${e.code} ${fullName(e)} ${e.email}`.toLowerCase().includes(s)));
@@ -67,11 +67,8 @@ export default function UsersPage() {
                   </option>
                 ))}
               </Select>
-              <Button size="sm" variant="secondary" className="h-9" icon={<KeyRound className="size-3.5" />} onClick={() => setCred({ u, kind: "password", value: "" })}>
+              <Button size="sm" variant="secondary" className="h-9" icon={<KeyRound className="size-3.5" />} onClick={() => setCred({ u, value: "" })}>
                 รหัสผ่าน
-              </Button>
-              <Button size="sm" variant="secondary" className="h-9" onClick={() => setCred({ u, kind: "pin", value: "" })}>
-                PIN
               </Button>
             </div>
           </Card>
@@ -81,19 +78,19 @@ export default function UsersPage() {
         open={!!cred}
         onClose={() => setCred(null)}
         size="sm"
-        title={`รีเซ็ต${cred?.kind === "pin" ? " PIN" : "รหัสผ่าน"} · ${cred?.u.code}`}
+        title={`รีเซ็ตรหัสผ่าน · ${cred?.u.code}`}
         footer={
           <>
             <Button variant="secondary" onClick={() => setCred(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={() => cred && act(() => api.resetCredential(cred.u.id, cred.kind, cred.value), "รีเซ็ตแล้ว").then((ok) => ok && setCred(null))}>บันทึก</Button>
+            <Button onClick={() => cred && act(() => api.resetPassword(cred.u.id, cred.value), "รีเซ็ตแล้ว").then((ok) => ok && setCred(null))}>บันทึก</Button>
           </>
         }
       >
         {cred && (
-          <Field label={cred.kind === "pin" ? "PIN ใหม่ (4–6 หลัก)" : "รหัสผ่านใหม่ (อย่างน้อย 4 ตัว)"}>
-            <Input autoFocus type="password" inputMode={cred.kind === "pin" ? "numeric" : undefined} value={cred.value} onChange={(e) => setCred({ ...cred, value: e.target.value })} />
+          <Field label="รหัสผ่านใหม่ (อย่างน้อย 4 ตัว)">
+            <Input autoFocus type="password" value={cred.value} onChange={(e) => setCred({ ...cred, value: e.target.value })} />
           </Field>
         )}
       </Modal>

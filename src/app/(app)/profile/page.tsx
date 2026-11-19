@@ -14,7 +14,6 @@ export default function Profile() {
   const [cur, setCur] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const [pin, setPin] = useState("");
   const perms = db.rbac[me.role];
   return (
     <Page title="โปรไฟล์และความปลอดภัย" back={true}>
@@ -55,19 +54,6 @@ export default function Profile() {
           </Button>
         </Card>
 
-        {(me.role === "manager" || db.rbac[me.role].includes("claim.approve")) && (
-          <>
-            <SectionTitle className="mt-6">PIN สำหรับยืนยันการอนุมัติ</SectionTitle>
-            <Card className="space-y-3 p-4">
-              <Field label="PIN ใหม่ (ตัวเลข 4–6 หลัก)">
-                <Input inputMode="numeric" type="password" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
-              </Field>
-              <Button disabled={pin.length < 4} onClick={() => act(() => api.resetCredential(me.id, "pin", pin), "เปลี่ยน PIN แล้ว").then((ok) => ok && setPin(""))}>
-                บันทึก PIN
-              </Button>
-            </Card>
-          </>
-        )}
       </div>
     </Page>
   );

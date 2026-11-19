@@ -4,6 +4,7 @@
  * แต่ละ service ตรวจสิทธิ์ (RBAC) ภายในตัวเองอีกชั้น
  */
 import * as admin from "../services/admin";
+import * as changes from "../services/changes";
 import * as claims from "../services/claims";
 
 export const RPC_METHODS = {
@@ -11,31 +12,30 @@ export const RPC_METHODS = {
   validateClaim: claims.validateClaimFor,
   submitClaim: claims.submitClaim,
   updateClaim: claims.updateClaim,
-  cancelClaim: claims.cancelClaim,
-  hrPass: claims.hrPass,
-  hrReturn: claims.hrReturn,
-  hrReject: claims.hrReject,
   approveClaim: claims.approveClaim,
   rejectClaim: claims.rejectClaim,
-  markPaid: claims.markPaid,
+  returnClaim: claims.returnClaim,
+  recordPayment: claims.recordPayment,
+  // คำขอแก้ไข (Maker–Checker)
+  requestClaimChange: changes.requestClaimChange,
+  requestLimitChange: changes.requestLimitChange,
+  reviewChange: changes.reviewChange,
   // ข้อมูลหลัก
   createEmployee: admin.createEmployee,
   updateEmployee: admin.updateEmployee,
   setEmployeeActive: admin.setEmployeeActive,
-  setDelegation: admin.setDelegation,
   saveDepartment: admin.saveDepartment,
   deleteDepartment: admin.deleteDepartment,
   savePosition: admin.savePosition,
   deletePosition: admin.deletePosition,
   saveBenefit: admin.saveBenefit,
-  setBudget: admin.setBudget,
   saveFundRound: admin.saveFundRound,
   updatePayrollSettings: admin.updatePayrollSettings,
   // ระบบ
   updateSystemSettings: admin.updateSystemSettings,
   setRolePermission: admin.setRolePermission,
   setUserRole: admin.setUserRole,
-  resetCredential: admin.resetCredential,
+  resetPassword: admin.resetPassword,
   changeOwnPassword: admin.changeOwnPassword,
   exportBackup: admin.exportBackup,
   restoreBackup: admin.restoreBackup,

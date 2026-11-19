@@ -1,12 +1,14 @@
 "use client";
-import { Plus, Settings2 } from "lucide-react";
+import { Plus, Scale, Settings2 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { Page } from "@/components/AppShell";
+import { FundRounds } from "@/components/FundRounds";
 import type { BenefitInput } from "@/lib/services/admin";
-import { Alert, Badge, Button, Card, Checkbox, Field, Input, Modal, Progress, Select, Switch, Textarea, useAction } from "@/components/ui";
-import { DOC_TYPES, EMPLOYMENT_TYPES, EMPLOYMENT_TYPE_LABEL } from "@/lib/domain/constants";
-import { todayLocal, yearOf } from "@/lib/domain/dates";
-import { orgBudgetOf } from "@/lib/domain/rules";
+import { Alert, Badge, Button, Card, Checkbox, Field, Input, Modal, Select, Switch, Textarea, useAction } from "@/components/ui";
+import { BENEFIT_CATEGORIES, DOC_TYPES, EMPLOYMENT_TYPES, EMPLOYMENT_TYPE_LABEL } from "@/lib/domain/constants";
+import { todayLocal } from "@/lib/domain/dates";
+import { resolveLimit } from "@/lib/domain/rules";
 import type { BenefitType, EmploymentType } from "@/lib/domain/types";
 import { money } from "@/lib/format";
 import { useDB } from "@/lib/hooks";
@@ -14,15 +16,6 @@ import { api } from "@/lib/client/api";
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 const str = (n: number | null | undefined) => (n == null ? "" : String(n));
-
-function limitText(b: Pick<BenefitType, "annualLimit" | "perClaimLimit" | "maxTimesPerYear" | "mode">) {
-  const p: string[] = [];
-  if (b.mode === "assigned") p.push("HR กำหนดยอดตามรอบงบ");
-  if (b.annualLimit != null) p.push(`วงเงิน ${money(b.annualLimit)} / ปี`);
-  if (b.perClaimLimit != null) p.push(`ครั้งละ ≤ ${money(b.perClaimLimit)}`);
-  if (b.maxTimesPerYear != null) p.push(`ปีละ ≤ ${b.maxTimesPerYear} ครั้ง`);
-  return p.join(" · ");
-}
 
 function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClose: () => void }) {
   const act = useAction();
@@ -32,13 +25,10 @@ function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClos
       : {
           code: "",
           name: "",
+          category: BENEFIT_CATEGORIES[0],
           description: "",
           mode: "claim",
-          annualLimit: null,
-          perClaimLimit: null,
-          maxTimesPerYear: null,
           eligibleTypes: ["permanent"],
-          typeOverrides: {},
           requiredDocs: ["ใบเสร็จ"],
           minServiceDays: null,
           claimWindowDays: null,
@@ -47,14 +37,17 @@ function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClos
         },
   );
   const [customDoc, setCustomDoc] = useState("");
+  /** วงเงินเริ่มต้นทุกระดับ — ใช้เฉพาะตอนสร้างสวัสดิการใหม่ (แก้ภายหลังต้องส่งคำขอแก้วงเงิน) */
+  const [lim, setLim] = useState({ perClaim: "", perYear: "", maxCount: "" });
   const set = <K extends keyof BenefitInput>(k: K, v: BenefitInput[K]) => setF((x) => ({ ...x, [k]: v }));
   const toggleType = (t: EmploymentType, on: boolean) => set("eligibleTypes", on ? [...f.eligibleTypes, t] : f.eligibleTypes.filter((x) => x !== t));
   const toggleDoc = (d: string, on: boolean) => set("requiredDocs", on ? [...f.requiredDocs, d] : f.requiredDocs.filter((x) => x !== d));
   const docs = [...new Set([...DOC_TYPES.filter((d) => d !== "อื่น ๆ"), ...f.requiredDocs])];
 
   const save = () => {
-    const overrides = Object.fromEntries(Object.entries(f.typeOverrides ?? {}).filter(([t, v]) => f.eligibleTypes.includes(t as EmploymentType) && v && v.annualLimit != null));
-    act(() => api.saveBenefit({ ...f, typeOverrides: overrides }, initial?.id), initial ? "บันทึกการตั้งค่าแล้ว" : "เพิ่มประเภทสวัสดิการแล้ว").then((ok) => ok && onClose());
+    const l = { minLevel: 1, maxLevel: 4, perClaim: numOrNull(lim.perClaim), perYear: numOrNull(lim.perYear), maxCount: numOrNull(lim.maxCount) };
+    const initialLimits = !initial && (l.perClaim != null || l.perYear != null || l.maxCount != null) ? [l] : [];
+    act(() => api.saveBenefit(f, initial?.id, initialLimits), initial ? "บันทึกการตั้งค่าแล้ว" : "เพิ่มประเภทสวัสดิการแล้ว").then((ok) => ok && onClose());
   };
 
   return (
@@ -81,6 +74,15 @@ function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClos
             <Input value={f.name} onChange={(e) => set("name", e.target.value)} />
           </Field>
         </div>
+        <Field label="หมวด (ใช้จัดกลุ่มในหน้ายื่นเบิก)" required>
+          <Select value={f.category} onChange={(e) => set("category", e.target.value)}>
+            {[...new Set([...BENEFIT_CATEGORIES, f.category])].map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="คำอธิบาย">
           <Textarea value={f.description ?? ""} onChange={(e) => set("description", e.target.value)} className="min-h-[60px]" />
         </Field>
@@ -90,42 +92,32 @@ function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClos
             <option value="assigned">HR กำหนดเงินช่วยเหลือ (เปิดเป็นรอบงบ เช่น ภัยพิบัติ)</option>
           </Select>
         </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="วงเงิน/ปี (บาท)" hint="ว่าง = ไม่จำกัด">
-            <Input type="number" min={0} value={str(f.annualLimit)} onChange={(e) => set("annualLimit", numOrNull(e.target.value))} />
-          </Field>
-          <Field label="วงเงิน/ครั้ง" hint="ว่าง = ไม่จำกัด">
-            <Input type="number" min={0} value={str(f.perClaimLimit)} onChange={(e) => set("perClaimLimit", numOrNull(e.target.value))} />
-          </Field>
-          <Field label="ครั้ง/ปี" hint="ว่าง = ไม่จำกัด">
-            <Input type="number" min={0} value={str(f.maxTimesPerYear)} onChange={(e) => set("maxTimesPerYear", numOrNull(e.target.value))} />
-          </Field>
-        </div>
+        {initial ? (
+          <Alert tone="info">วงเงินแก้ที่เมนู &quot;วงเงินตามระดับ&quot; — ต้องส่งคำขอให้หัวหน้า HR อนุมัติก่อนมีผล</Alert>
+        ) : (
+          <div>
+            <p className="mb-2 text-[13px] font-medium">วงเงินเริ่มต้น (ทุกระดับ 1–4 — แยกตามระดับภายหลังได้ที่เมนูวงเงินตามระดับ)</p>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="ต่อครั้ง (บาท)" hint="ว่าง = ไม่จำกัด">
+                <Input type="number" min={0} value={lim.perClaim} onChange={(e) => setLim({ ...lim, perClaim: e.target.value })} />
+              </Field>
+              <Field label="ต่อปี (บาท)" hint="ว่าง = ไม่จำกัด">
+                <Input type="number" min={0} value={lim.perYear} onChange={(e) => setLim({ ...lim, perYear: e.target.value })} />
+              </Field>
+              <Field label="ครั้ง/ปี" hint="ว่าง = ไม่จำกัด">
+                <Input type="number" min={0} value={lim.maxCount} onChange={(e) => setLim({ ...lim, maxCount: e.target.value })} />
+              </Field>
+            </div>
+          </div>
+        )}
 
         <div>
-          <p className="mb-2 text-[13px] font-medium">ประเภทพนักงานที่มีสิทธิ์ และวงเงินเฉพาะประเภท</p>
-          <div className="space-y-2 rounded-xl border border-zinc-200 p-3">
-            {EMPLOYMENT_TYPES.filter((t) => t !== "terminated").map((t) => {
-              const on = f.eligibleTypes.includes(t);
-              return (
-                <div key={t} className="flex items-center gap-3">
-                  <div className="w-32">
-                    <Checkbox checked={on} onChange={(v) => toggleType(t, v)} label={EMPLOYMENT_TYPE_LABEL[t]} />
-                  </div>
-                  <Input
-                    type="number"
-                    min={0}
-                    disabled={!on}
-                    className="h-9 flex-1"
-                    placeholder={f.annualLimit != null ? `ใช้ค่าทั่วไป (${f.annualLimit.toLocaleString("th-TH")})` : "วงเงิน/ปี เฉพาะประเภทนี้"}
-                    value={str(f.typeOverrides?.[t]?.annualLimit)}
-                    onChange={(e) => set("typeOverrides", { ...f.typeOverrides, [t]: { annualLimit: numOrNull(e.target.value) } })}
-                    aria-label={`วงเงินเฉพาะ ${EMPLOYMENT_TYPE_LABEL[t]}`}
-                  />
-                </div>
-              );
-            })}
-            <p className="text-xs text-zinc-500">พนักงานพ้นสภาพไม่มีสิทธิ์โดยอัตโนมัติ</p>
+          <p className="mb-2 text-[13px] font-medium">ประเภทพนักงานที่มีสิทธิ์</p>
+          <div className="grid gap-2 rounded-xl border border-zinc-200 p-3 sm:grid-cols-3">
+            {EMPLOYMENT_TYPES.filter((t) => t !== "terminated").map((t) => (
+              <Checkbox key={t} checked={f.eligibleTypes.includes(t)} onChange={(v) => toggleType(t, v)} label={EMPLOYMENT_TYPE_LABEL[t]} />
+            ))}
+            <p className="text-xs text-zinc-500 sm:col-span-3">พนักงานพ้นสภาพไม่มีสิทธิ์โดยอัตโนมัติ</p>
           </div>
         </div>
 
@@ -180,14 +172,24 @@ function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClos
   );
 }
 
+function limitSummary(db: ReturnType<typeof useDB>, b: BenefitType, today: string) {
+  if (b.mode === "assigned") return "HR กำหนดยอดตามรอบงบ";
+  const parts = [1, 2, 3, 4].map((lv) => {
+    const l = resolveLimit(db.benefitLimits, b.id, lv, today);
+    if (!l) return `ระดับ ${lv}: -`;
+    const x = [l.perClaim != null && `ครั้งละ ${money(l.perClaim)}`, l.perYear != null && `ปีละ ${money(l.perYear)}`, l.maxCount != null && `${l.maxCount} ครั้ง`].filter(Boolean).join(" · ");
+    return `ระดับ ${lv}: ${x}`;
+  });
+  return parts.join(" | ");
+}
+
 export default function BenefitsPage() {
   const db = useDB();
   const [edit, setEdit] = useState<BenefitType | "new" | null>(null);
   const today = todayLocal();
-  const year = yearOf(today);
   return (
     <Page
-      title="ตั้งค่าสวัสดิการ"
+      title="ประเภทสวัสดิการ"
       perm="benefit.manage"
       wide
       actions={
@@ -197,47 +199,43 @@ export default function BenefitsPage() {
       }
     >
       <Alert tone="info" className="mb-4">
-        แตะรายการเพื่อแก้ไขวงเงิน — การเปลี่ยนแปลงมีผลทันทีกับคำขอที่ยื่นใหม่ · รองรับการเพิ่มประเภทสวัสดิการได้ไม่จำกัด
+        แก้ชื่อ หมวด เอกสาร และสิทธิ์ตามประเภทพนักงานได้ที่นี่ · วงเงินแยกตามระดับตำแหน่ง แก้ที่{" "}
+        <Link href="/hr/limits" className="font-medium underline">
+          วงเงินตามระดับ
+        </Link>{" "}
+        (ต้องให้หัวหน้า HR อนุมัติ)
       </Alert>
       <div className="grid gap-3 lg:grid-cols-2">
-        {db.benefitTypes.map((b) => {
-          const ob = orgBudgetOf(b, year, db.employees, db.claims, db.budgets, today);
-          const pct = ob.budget ? ((ob.used + ob.pending) / ob.budget) * 100 : 0;
-          return (
-            <Card key={b.id} className={`p-4 ${b.active ? "" : "opacity-60"}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-semibold">
-                    {b.name} <span className="text-xs font-normal text-zinc-400">{b.code}</span>
-                  </p>
-                  <p className="text-sm text-zinc-600">{limitText(b)}</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    สิทธิ์: {b.eligibleTypes.map((t) => EMPLOYMENT_TYPE_LABEL[t] + (b.typeOverrides?.[t]?.annualLimit != null ? ` (${money(b.typeOverrides[t]!.annualLimit!)})` : "")).join(", ")} · เอกสาร:{" "}
-                    {b.requiredDocs.join(", ") || "-"}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {!b.active && <Badge tone="red">ปิดใช้งาน</Badge>}
-                    {b.sensitive && <Badge tone="violet">ข้อมูลสุขภาพ</Badge>}
-                    {b.minServiceDays ? <Badge>อายุงาน ≥ {b.minServiceDays} วัน</Badge> : null}
-                    {b.claimWindowDays ? <Badge>ยื่นภายใน {b.claimWindowDays} วัน</Badge> : null}
-                  </div>
+        {db.benefitTypes.map((b) => (
+          <Card key={b.id} className={`p-4 ${b.active ? "" : "opacity-60"}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  {b.name} <span className="text-xs font-normal text-zinc-400">{b.code}</span>
+                </p>
+                <p className="text-xs text-zinc-500">หมวด {b.category}</p>
+                <p className="mt-1 flex gap-1 text-xs text-zinc-600">
+                  <Scale className="mt-0.5 size-3.5 shrink-0 text-zinc-400" />
+                  {limitSummary(db, b, today)}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  สิทธิ์: {b.eligibleTypes.map((t) => EMPLOYMENT_TYPE_LABEL[t as EmploymentType]).join(", ")} · เอกสาร: {b.requiredDocs.join(", ") || "-"}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {!b.active && <Badge tone="red">ปิดใช้งาน</Badge>}
+                  {b.sensitive && <Badge tone="violet">ข้อมูลสุขภาพ</Badge>}
+                  {b.minServiceDays ? <Badge>อายุงาน ≥ {b.minServiceDays} วัน</Badge> : null}
+                  {b.claimWindowDays ? <Badge>ยื่นภายใน {b.claimWindowDays} วัน</Badge> : null}
                 </div>
-                <Button size="sm" variant="secondary" icon={<Settings2 className="size-3.5" />} onClick={() => setEdit(b)}>
-                  แก้ไข
-                </Button>
               </div>
-              {ob.budget != null && (
-                <>
-                  <Progress value={pct} className="mt-3" tone={pct > 90 ? "red" : "brand"} />
-                  <p className="mt-1.5 text-xs text-zinc-500">
-                    งบปีนี้ {money(ob.budget)} · ใช้/จอง {money(ob.used + ob.pending)} ({pct.toFixed(0)}%)
-                  </p>
-                </>
-              )}
-            </Card>
-          );
-        })}
+              <Button size="sm" variant="secondary" icon={<Settings2 className="size-3.5" />} onClick={() => setEdit(b)}>
+                แก้ไข
+              </Button>
+            </div>
+          </Card>
+        ))}
       </div>
+      <FundRounds />
       {edit && <BenefitForm initial={edit === "new" ? null : edit} onClose={() => setEdit(null)} />}
     </Page>
   );

@@ -1,67 +1,51 @@
 /**
  * Query helpers (อ่านอย่างเดียว ไม่แก้ข้อมูล) — ใช้ได้ทั้งฝั่งเซิร์ฟเวอร์และหน้าจอ
  */
-import { todayLocal, yearOf } from "../domain/dates";
-import { approversFor, checkClaim, claimValue, orgBudgetOf } from "../domain/rules";
-import type { AttachmentMeta, Claim, Database, Employee } from "../domain/types";
-import { can, requireEmployee, ServiceError } from "./core";
+import { todayLocal } from "../domain/dates";
+import { checkClaim } from "../domain/rules";
+import type { AttachmentMeta, Database, PaymentMethod } from "../domain/types";
+import { requireEmployee, ServiceError } from "./core";
 
 export interface ClaimInput {
-  employeeId: string;
   benefitTypeId: string;
-  amount: number;
+  receiptNo: string;
+  vendorName: string;
+  amountRequested: number;
   receiptDate: string;
   note?: string;
   attachments: AttachmentMeta[];
   fundRoundId?: string | null;
-  /** ต้องระบุเมื่อ HR ยื่นแทน */
-  onBehalfReason?: string;
 }
 
 export function openFundRound(db: Database, benefitTypeId: string, today = todayLocal()) {
-  return db.fundRounds.find(
-    (r) => r.benefitTypeId === benefitTypeId && r.status === "open" && r.openFrom <= today && r.openTo >= today,
-  );
+  return db.fundRounds.find((r) => r.benefitTypeId === benefitTypeId && r.status === "open" && r.openFrom <= today && r.openTo >= today);
 }
 
-export function validateClaim(db: Database, input: ClaimInput, excludeClaimId?: string, today = todayLocal()) {
-  const employee = requireEmployee(db, input.employeeId);
+export function validateClaim(db: Database, employeeId: string, input: ClaimInput, excludeClaimId?: string, today = todayLocal()) {
+  const employee = requireEmployee(db, employeeId);
   const benefit = db.benefitTypes.find((b) => b.id === input.benefitTypeId);
   if (!benefit) throw new ServiceError("ไม่พบประเภทสวัสดิการ");
   const fundRound =
     benefit.mode === "assigned"
-      ? (input.fundRoundId ? db.fundRounds.find((r) => r.id === input.fundRoundId) : openFundRound(db, benefit.id, today)) ?? null
+      ? ((input.fundRoundId ? db.fundRounds.find((r) => r.id === input.fundRoundId) : openFundRound(db, benefit.id, today)) ?? null)
       : null;
-  const year = input.receiptDate ? yearOf(input.receiptDate) : yearOf(today);
-  const orgBudget = orgBudgetOf(benefit, year, db.employees, db.claims.filter((c) => c.id !== excludeClaimId), db.budgets, today);
   const result = checkClaim({
     employee,
     benefit,
-    amount: input.amount,
+    amountRequested: Number(input.amountRequested),
+    receiptNo: input.receiptNo ?? "",
+    vendorName: input.vendorName ?? "",
     receiptDate: input.receiptDate,
     docTypes: input.attachments.map((a) => a.docType),
     today,
     claims: db.claims,
+    limits: db.benefitLimits,
+    positions: db.positions,
     excludeClaimId,
-    orgBudget,
-    orgBudgetMode: db.settings.orgBudgetMode,
     fundRound,
   });
-  if (!employee.managerId || approversFor(employee, db.employees, today).length === 0)
-    result.errors.push("ยังไม่ได้กำหนดหัวหน้างานผู้อนุมัติ กรุณาติดต่อ HR");
-  result.ok = result.errors.length === 0;
-  return { ...result, employee, benefit, fundRound, orgBudget };
+  return { ...result, employee, benefit, fundRound };
 }
-
-
-export function canApprove(db: Database, actor: Employee, c: Claim, today = todayLocal()) {
-  if (!can(db, actor, "claim.approve")) return false;
-  if (c.employeeId === actor.id) return false;
-  const emp = db.employees.find((e) => e.id === c.employeeId);
-  if (!emp) return false;
-  return approversFor(emp, db.employees, today).includes(actor.id);
-}
-
 
 /** มุมมองสำหรับฝ่ายบัญชี — ไม่มีชื่อ ข้อมูลส่วนตัว หรือเอกสารสุขภาพ (PDPA) */
 export interface PaymentRow {
@@ -71,12 +55,17 @@ export interface PaymentRow {
   department: string;
   benefitCode: string;
   benefitName: string;
-  amount: number;
+  receiptNo: string;
+  vendorName: string;
+  amountApproved: number;
   payDate: string;
-  approvedAt: string;
+  decidedAt: string;
   status: "approved" | "paid";
+  /** มีคำขอแก้ผลค้างอยู่ → ล็อกการจ่าย */
+  locked: boolean;
+  method?: PaymentMethod | null;
   paidAt?: string | null;
-  paymentRef?: string | null;
+  ref?: string | null;
 }
 
 export function paymentRows(db: Database): PaymentRow[] {
@@ -85,6 +74,7 @@ export function paymentRows(db: Database): PaymentRow[] {
     .map((c) => {
       const e = db.employees.find((x) => x.id === c.employeeId);
       const b = db.benefitTypes.find((x) => x.id === c.benefitTypeId);
+      const p = db.payments.find((x) => x.claimId === c.id);
       return {
         claimId: c.id,
         claimNo: c.no,
@@ -92,12 +82,20 @@ export function paymentRows(db: Database): PaymentRow[] {
         department: db.departments.find((d) => d.id === e?.departmentId)?.code ?? "-",
         benefitCode: b?.code ?? "-",
         benefitName: b?.name ?? "-",
-        amount: claimValue(c, b),
+        receiptNo: c.receiptNo,
+        vendorName: c.vendorName,
+        amountApproved: c.amountApproved,
         payDate: c.payDate ?? "-",
-        approvedAt: c.approvedAt ?? "",
+        decidedAt: c.decidedAt ?? "",
         status: c.status as "approved" | "paid",
-        paidAt: c.paidAt,
-        paymentRef: c.paymentRef,
+        locked: db.changeRequests.some((r) => r.kind === "claim_status" && r.targetId === c.id && r.status === "pending"),
+        method: p?.method ?? null,
+        paidAt: p?.paidAt ?? null,
+        ref: p?.transferRef ?? p?.chequeNo ?? null,
       };
     });
+}
+
+export function hasPendingChange(db: Database, claimId: string) {
+  return db.changeRequests.some((r) => r.kind === "claim_status" && r.targetId === claimId && r.status === "pending");
 }

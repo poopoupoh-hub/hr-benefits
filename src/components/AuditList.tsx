@@ -25,7 +25,7 @@ export function AuditRow({ log, db }: { log: AuditLog; db: Database }) {
             {dateTimeFullTH(log.at)} · {actor ? `${fullName(actor)}${log.actorRole ? ` (${ROLE_LABEL[log.actorRole]})` : ""}` : "ระบบ / ไม่ระบุตัวตน"}
           </p>
         </div>
-        <Badge tone={log.action.includes("fail") ? "red" : log.action === "approve" || log.action === "mark_paid" ? "green" : "gray"}>{log.action}</Badge>
+        <Badge tone={log.action.includes("fail") ? "red" : log.action === "approve" || log.action === "record_payment" || log.action === "change_approve" ? "green" : "gray"}>{log.action}</Badge>
         {hasDiff && <ChevronDown className={`mt-0.5 size-4 shrink-0 text-zinc-400 transition ${open ? "rotate-180" : ""}`} />}
       </button>
       {open && (
