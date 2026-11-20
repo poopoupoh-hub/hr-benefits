@@ -168,6 +168,7 @@ export function approveClaim(actorId: string, claimId: string, opts: { assignedA
     const before = claimState(c);
     c.amountApproved = recomputeApproved(db, c, opts);
     c.decidedById = actor.id;
+    c.decidedRole = actor.role;
     c.decidedAt = nowISO();
     c.payDate = computePayDate(todayLocal(), db.settings);
     pushEvent(c, actor, "approve", "approved", opts.note?.trim() || undefined);
@@ -196,6 +197,7 @@ export function rejectClaim(actorId: string, claimId: string, reason: string) {
     if (!reason?.trim()) throw new ServiceError("กรุณาระบุเหตุผลที่ไม่อนุมัติ");
     const before = claimState(c);
     c.decidedById = actor.id;
+    c.decidedRole = actor.role;
     c.decidedAt = nowISO();
     c.rejectReason = reason.trim();
     pushEvent(c, actor, "reject", "rejected", reason.trim());

@@ -9,7 +9,7 @@ import { scopeDatabase } from "../data/scope";
 import { setRolePermission, setUserRole, updateEmployee } from "./admin";
 import { requestClaimChange, requestLimitChange, reviewChange } from "./changes";
 import { approveClaim, recordPayment, rejectClaim, returnClaim, submitClaim, updateClaim } from "./claims";
-import { can } from "./core";
+import { can, deciderLabel } from "./core";
 import { paymentRows } from "./queries";
 
 const att = (docType: string) => ({ id: "f-" + docType, name: "x.jpg", size: 1, type: "image/jpeg", docType, uploadedAt: new Date().toISOString() });
@@ -153,6 +153,25 @@ describe("สิทธิ์การเห็นข้อมูล (scope) แ�
     expect(() => approveClaim("e-0010", "c-0008")).toThrow("กำหนดจำนวนเงิน");
     expect(() => approveClaim("e-0010", "c-0008", { assignedAmount: 25000 })).toThrow("สูงสุดต่อคน");
     expect(approveClaim("e-0010", "c-0008", { assignedAmount: 15000 }).amountApproved).toBe(15000);
+  });
+});
+
+describe("บทบาทผู้ตัดสินบนคำร้อง", () => {
+  beforeEach(() => resetDB());
+
+  it("บันทึกบทบาท ณ เวลาที่ตัดสิน: HR อนุมัติ → (HR) · หัวหน้า HR อนุมัติคำขอของ HR → (หัวหน้า HR)", () => {
+    const c = submitClaim("e-0001", den(900));
+    expect(approveClaim("e-0010", c.id).decidedRole).toBe("hr");
+    expect(deciderLabel(getDB(), claimOf(c.id))).toBe("วิภา บุคคล (HR)");
+    approveClaim("e-0011", "c-0010");
+    expect(deciderLabel(getDB(), claimOf("c-0010"))).toBe("ประภา หัวหน้าบุคคล (หัวหน้า HR)");
+  });
+
+  it("เปลี่ยนบทบาทภายหลัง บทบาทบนคำร้องเดิมไม่เปลี่ยน", () => {
+    const c = submitClaim("e-0001", den(900));
+    approveClaim("e-0010", c.id);
+    setUserRole("e-0050", "e-0010", "employee");
+    expect(deciderLabel(getDB(), claimOf(c.id))).toBe("วิภา บุคคล (HR)");
   });
 });
 

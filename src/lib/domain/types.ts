@@ -144,6 +144,8 @@ export interface Claim {
   submittedAt: ISODateTime;
   /** ผู้พิจารณา (อนุมัติ / ไม่อนุมัติ) และเวลา */
   decidedById?: string | null;
+  /** บทบาทของผู้ตัดสิน ณ เวลาที่ตัดสิน (HR / หัวหน้า HR) — ไม่เปลี่ยนตามบทบาทปัจจุบัน */
+  decidedRole?: Role | null;
   decidedAt?: ISODateTime | null;
   /** วันจ่ายเงินที่คำนวณ */
   payDate?: ISODate | null;

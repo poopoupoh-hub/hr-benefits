@@ -2,7 +2,7 @@
 import { CalendarDays, Check, ChevronRight, FileText, Paperclip, Shield, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { ACCEPTED_FILE_TYPES, EMPLOYMENT_TYPE_LABEL, MAX_FILE_SIZE, STATUS_LABEL } from "@/lib/domain/constants";
+import { ACCEPTED_FILE_TYPES, EMPLOYMENT_TYPE_LABEL, MAX_FILE_SIZE, ROLE_LABEL, STATUS_LABEL } from "@/lib/domain/constants";
 import type { AttachmentMeta, BenefitType, Claim, ClaimStatus, Database } from "@/lib/domain/types";
 import { fetchFile, uploadFile } from "@/lib/client/api";
 import type { Entitlement } from "@/lib/domain/rules";
@@ -85,11 +85,13 @@ type StepState = "done" | "current" | "warn" | "fail" | "todo";
 export function FlowStepper({ c, db }: { c: Claim; db: Database }) {
   const name = (id?: string | null) => (id ? fullName(db.employees.find((e) => e.id === id)) : null);
   const decided = c.status === "approved" || c.status === "paid";
+  /** บทบาทจริงของผู้ตัดสิน (HR / หัวหน้า HR) — ยังไม่ตัดสินแสดง "HR" */
+  const deciderRole = c.decidedById ? (c.decidedRole ?? db.employees.find((e) => e.id === c.decidedById)?.role) : null;
   const steps: { label: string; who: string; state: StepState; detail: string | null }[] = [
     { label: "ยื่นคำขอ", who: "พนักงาน", state: c.status === "returned" ? "warn" : "done", detail: c.status === "returned" ? "รอผู้ยื่นแก้ไข" : name(c.employeeId) },
     {
       label: "ตรวจและอนุมัติ",
-      who: "HR",
+      who: deciderRole && (c.status === "rejected" || decided) ? ROLE_LABEL[deciderRole] : "HR",
       state: c.status === "pending_hr" ? "current" : c.status === "rejected" ? "fail" : decided ? "done" : "todo",
       detail: c.status === "pending_hr" ? "กำลังรอ HR" : c.status === "rejected" ? `ไม่อนุมัติ · ${name(c.decidedById)}` : decided ? name(c.decidedById) : null,
     },

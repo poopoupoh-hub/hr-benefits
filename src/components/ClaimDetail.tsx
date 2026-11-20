@@ -9,7 +9,7 @@ import type { Claim, Database, Employee } from "@/lib/domain/types";
 import { dateTH, dateTimeFullTH, money } from "@/lib/format";
 import { useCan, useDB, useMe } from "@/lib/hooks";
 import { validateClaim } from "@/lib/services/queries";
-import { fullName } from "@/lib/services/core";
+import { deciderLabel, fullName } from "@/lib/services/core";
 import { AttachmentList, ConfirmMoneyDialog, FlowStepper, PayDateHint, StatusBadge, Timeline } from "./claims";
 import { Alert, Button, Card, Field, Input, KV, Modal, Textarea, useAction } from "./ui";
 import { api } from "@/lib/client/api";
@@ -90,7 +90,7 @@ export function ClaimDetail({ c, onDone, compact }: { c: Claim; onDone?: () => v
       )}
       {c.status === "rejected" && c.rejectReason && (
         <Alert tone="error">
-          <b>ไม่อนุมัติ{decider ? ` โดย ${fullName(decider)}` : ""}:</b> {c.rejectReason}
+          <b>ไม่อนุมัติ{decider ? ` โดย ${deciderLabel(db, c)}` : ""}:</b> {c.rejectReason}
           <span className="block text-xs">สิทธิ์และวงเงินถูกคืนแล้ว</span>
         </Alert>
       )}
@@ -136,7 +136,7 @@ export function ClaimDetail({ c, onDone, compact }: { c: Claim; onDone?: () => v
           <KV k={assignedMode ? "วันที่เกิดเหตุ" : "วันที่ในใบเสร็จ"} v={dateTH(c.receiptDate)} />
           <KV k="วันที่ยื่น" v={dateTimeFullTH(c.submittedAt)} />
           {round && <KV k="รอบงบ" v={round.name} />}
-          {decider && c.decidedAt && <KV k={c.status === "rejected" ? "ไม่อนุมัติโดย" : "อนุมัติโดย"} v={`${fullName(decider)} · ${dateTimeFullTH(c.decidedAt)}`} />}
+          {decider && c.decidedAt && <KV k={c.status === "rejected" ? "ไม่อนุมัติโดย" : "อนุมัติโดย"} v={`${deciderLabel(db, c)} · ${dateTimeFullTH(c.decidedAt)}`} />}
           {c.payDate && c.status === "approved" && <KV k="กำหนดจ่าย" v={<span className="text-emerald-700">{dateTH(c.payDate)}</span>} />}
           {c.note && <KV k="หมายเหตุ" v={<span className="font-normal">{c.note}</span>} />}
         </div>

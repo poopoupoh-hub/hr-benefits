@@ -127,6 +127,7 @@ export function reviewChange(actorId: string, requestId: string, approve: boolea
           c.payDate = null;
         }
         c.decidedById = actor.id;
+        c.decidedRole = actor.role;
         c.decidedAt = nowISO();
         c.history.push({ at: nowISO(), actorId: actor.id, action: "change_result", fromStatus, toStatus: to, note: `แก้ผลตามคำขอแก้ไข: ${cr.reason}` });
         c.status = to;
