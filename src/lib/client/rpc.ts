@@ -12,14 +12,10 @@ export const RPC_METHODS = {
   validateClaim: claims.validateClaimFor,
   submitClaim: claims.submitClaim,
   updateClaim: claims.updateClaim,
-  // ขั้นที่ 1: HR ตรวจเอกสาร
-  verifyClaim: claims.verifyClaim,
-  returnClaim: claims.returnClaim,
-  // ขั้นที่ 2: หัวหน้างานอนุมัติ
+  // HR / หัวหน้า HR ตรวจ: อนุมัติ / ไม่อนุมัติ / ส่งกลับ
   approveClaim: claims.approveClaim,
-  setDelegation: claims.setDelegation,
-  // ไม่อนุมัติ (ทั้งสองขั้น)
   rejectClaim: claims.rejectClaim,
+  returnClaim: claims.returnClaim,
   // บัญชี
   recordPayment: claims.recordPayment,
   // คำขอแก้ไข (Maker–Checker)

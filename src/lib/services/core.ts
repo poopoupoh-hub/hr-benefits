@@ -2,8 +2,8 @@
  * Service Layer — บริการกลาง: ตรวจสิทธิ์ (RBAC), บันทึก Audit Log, ส่งอีเมล
  * ทุก service ที่แก้ข้อมูลต้องผ่าน assertCan() และ logAudit() เสมอ
  */
-import { FORBIDDEN_PERMISSIONS } from "../domain/constants";
-import type { AuditLog, Database, Employee, Permission } from "../domain/types";
+import { FORBIDDEN_PERMISSIONS, ROLE_LABEL } from "../domain/constants";
+import type { AuditLog, Claim, Database, Employee, Permission } from "../domain/types";
 import { uid } from "../data/uid";
 
 export class ServiceError extends Error {
@@ -96,3 +96,11 @@ export function requireEmployee(db: Database, id: string) {
 }
 
 export const fullName = (e?: Pick<Employee, "firstName" | "lastName"> | null) => (e ? `${e.firstName} ${e.lastName}` : "-");
+
+/** ผู้ตัดสินคำขอ พร้อมบทบาท ณ เวลาที่ตัดสิน เช่น "วิภา บุคคล (HR)" — ข้อมูลเก่าที่ไม่มี decidedRole ใช้บทบาทปัจจุบัน */
+export function deciderLabel(db: Pick<Database, "employees">, c: Pick<Claim, "decidedById" | "decidedRole">) {
+  const e = c.decidedById ? db.employees.find((x) => x.id === c.decidedById) : undefined;
+  if (!e) return null;
+  const role = c.decidedRole ?? e.role;
+  return `${fullName(e)} (${ROLE_LABEL[role]})`;
+}

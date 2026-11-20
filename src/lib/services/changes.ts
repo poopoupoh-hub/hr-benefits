@@ -1,7 +1,7 @@
 /**
  * คำขอแก้ไข (Maker–Checker)
  * - HR ขอแก้ผลคำขอที่อนุมัติ/ไม่อนุมัติแล้ว หรือขอแก้วงเงิน → ยังไม่มีผลทันที
- * - HR อีกคนอนุมัติจึงมีผล — ผู้ขอแก้อนุมัติ/ปฏิเสธคำขอของตัวเองไม่ได้ (Maker ≠ Checker)
+ * - หัวหน้า HR อนุมัติจึงมีผล; อนุมัติคำขอของตัวเองได้แต่ต้องยืนยันรหัสผ่าน (selfApproved)
  * - วงเงินใหม่ = เพิ่ม BenefitLimit แถวใหม่ ไม่ทับแถวเดิม
  */
 import { LEVELS, STATUS_LABEL } from "../domain/constants";
@@ -9,6 +9,7 @@ import { todayLocal } from "../domain/dates";
 import { computePayDate } from "../domain/rules";
 import type { BenefitLimit, ChangeRequest, ClaimStatus, Database } from "../domain/types";
 import { commit, uid } from "../data/db";
+import { verifySecret } from "../security/hash";
 import { recomputeApproved } from "./claims";
 import { assertCan, logAudit, nowISO, requireEmployee, ServiceError } from "./core";
 import { hasPendingChange } from "./queries";
@@ -98,13 +99,14 @@ export function requestLimitChange(actorId: string, benefitId: string, baseLimit
   });
 }
 
-export function reviewChange(actorId: string, requestId: string, approve: boolean, opts: { note?: string } = {}) {
+export function reviewChange(actorId: string, requestId: string, approve: boolean, opts: { note?: string; password?: string } = {}) {
   return commit((db) => {
     const actor = requireEmployee(db, actorId);
     assertCan(db, actor, "change.review");
     const cr = db.changeRequests.find((r) => r.id === requestId);
     if (!cr || cr.status !== "pending") throw new ServiceError("ไม่พบคำขอแก้ไขที่รออนุมัติ");
-    if (cr.requestedBy === actor.id) throw new ServiceError("ผู้ส่งคำขอแก้ไขพิจารณาคำขอของตนเองไม่ได้ — ต้องให้ HR คนอื่นพิจารณา");
+    const self = cr.requestedBy === actor.id;
+    if (approve && self && !verifySecret(opts.password ?? "", actor.passwordHash)) throw new ServiceError("รหัสผ่านไม่ถูกต้อง");
 
     let label = "";
     if (cr.kind === "claim_status") {
@@ -125,6 +127,7 @@ export function reviewChange(actorId: string, requestId: string, approve: boolea
           c.payDate = null;
         }
         c.decidedById = actor.id;
+        c.decidedRole = actor.role;
         c.decidedAt = nowISO();
         c.history.push({ at: nowISO(), actorId: actor.id, action: "change_result", fromStatus, toStatus: to, note: `แก้ผลตามคำขอแก้ไข: ${cr.reason}` });
         c.status = to;
@@ -152,11 +155,12 @@ export function reviewChange(actorId: string, requestId: string, approve: boolea
     cr.reviewedBy = actor.id;
     cr.reviewedAt = nowISO();
     cr.reviewNote = opts.note?.trim() || null;
+    cr.selfApproved = approve && self ? true : undefined;
     logAudit(db, actor, {
       action: approve ? "change_approve" : "change_reject",
       entity: cr.kind === "claim_status" ? "claim" : "benefit_limit",
       entityId: cr.targetId,
-      summary: `${approve ? "อนุมัติ" : "ปฏิเสธ"}คำขอแก้ไข ${label} (${cr.id})${cr.reviewNote ? ` · ${cr.reviewNote}` : ""}`,
+      summary: `${approve ? "อนุมัติ" : "ปฏิเสธ"}คำขอแก้ไข ${label} (${cr.id})${approve && self ? " — อนุมัติคำขอของตนเอง (selfApproved)" : ""}${cr.reviewNote ? ` · ${cr.reviewNote}` : ""}`,
       before: cr.before,
       after: cr.after,
     });

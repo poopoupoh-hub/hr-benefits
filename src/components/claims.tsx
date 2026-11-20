@@ -2,7 +2,7 @@
 import { CalendarDays, Check, ChevronRight, FileText, Paperclip, Shield, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { ACCEPTED_FILE_TYPES, EMPLOYMENT_TYPE_LABEL, MAX_FILE_SIZE, STATUS_LABEL } from "@/lib/domain/constants";
+import { ACCEPTED_FILE_TYPES, EMPLOYMENT_TYPE_LABEL, MAX_FILE_SIZE, ROLE_LABEL, STATUS_LABEL } from "@/lib/domain/constants";
 import type { AttachmentMeta, BenefitType, Claim, ClaimStatus, Database } from "@/lib/domain/types";
 import { fetchFile, uploadFile } from "@/lib/client/api";
 import type { Entitlement } from "@/lib/domain/rules";
@@ -12,7 +12,6 @@ import { Alert, Badge, Button, Card, Modal, Select, useToast } from "./ui";
 
 const STATUS_TONE: Record<ClaimStatus, "gray" | "amber" | "blue" | "green" | "red" | "orange" | "violet"> = {
   pending_hr: "amber",
-  pending_manager: "blue",
   returned: "orange",
   approved: "violet",
   paid: "green",
@@ -57,10 +56,7 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
           {cut && <p className="text-[11px] text-zinc-500 tabular">ขอเบิก {money(c.amountRequested)}</p>}
         </div>
         <div className="text-right text-xs">
-          {c.status === "pending_hr" && <p className="text-amber-700">ขั้นที่ 1/2 · HR ตรวจเอกสาร</p>}
-          {c.status === "pending_manager" && (
-            <p className="text-sky-700">ขั้นที่ 2/2 · รอ {db.employees.find((x) => x.id === c.approverId)?.firstName ?? "หัวหน้า"} อนุมัติ</p>
-          )}
+          {c.status === "pending_hr" && <p className="text-amber-700">รอ HR ตรวจ</p>}
           {c.payDate && c.status === "approved" && <p className="text-violet-700">กำหนดจ่าย {dateTH(c.payDate)}</p>}
           {c.status === "paid" && <p className="text-emerald-700">เงินเข้า {dateTH(c.payDate)}</p>}
           {c.status === "returned" && <p className="text-brand-700">ต้องแก้ไข</p>}
@@ -85,24 +81,19 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
 
 type StepState = "done" | "current" | "warn" | "fail" | "todo";
 
-/** แถบขั้นตอน: ยื่น → HR ตรวจเอกสาร → หัวหน้าอนุมัติ → บัญชีจ่าย พร้อมชื่อผู้ดำเนินการแต่ละขั้น */
+/** แถบขั้นตอน: ยื่น → HR ตรวจและอนุมัติ → บัญชีจ่าย พร้อมชื่อผู้ดำเนินการแต่ละขั้น */
 export function FlowStepper({ c, db }: { c: Claim; db: Database }) {
   const name = (id?: string | null) => (id ? fullName(db.employees.find((e) => e.id === id)) : null);
-  const rejectedAtHr = c.status === "rejected" && !c.verifiedById;
-  const rejectedAtMgr = c.status === "rejected" && !!c.verifiedById;
+  const decided = c.status === "approved" || c.status === "paid";
+  /** บทบาทจริงของผู้ตัดสิน (HR / หัวหน้า HR) — ยังไม่ตัดสินแสดง "HR" */
+  const deciderRole = c.decidedById ? (c.decidedRole ?? db.employees.find((e) => e.id === c.decidedById)?.role) : null;
   const steps: { label: string; who: string; state: StepState; detail: string | null }[] = [
     { label: "ยื่นคำขอ", who: "พนักงาน", state: c.status === "returned" ? "warn" : "done", detail: c.status === "returned" ? "รอผู้ยื่นแก้ไข" : name(c.employeeId) },
     {
-      label: "ตรวจเอกสาร",
-      who: "HR",
-      state: c.status === "pending_hr" ? "current" : rejectedAtHr ? "fail" : c.status === "returned" ? "todo" : "done",
-      detail: c.status === "pending_hr" ? "กำลังรอ HR" : rejectedAtHr ? `ไม่ผ่าน · ${name(c.decidedById)}` : c.status === "returned" ? null : name(c.verifiedById),
-    },
-    {
-      label: "อนุมัติ",
-      who: "หัวหน้างาน",
-      state: c.status === "pending_manager" ? "current" : rejectedAtMgr ? "fail" : c.status === "approved" || c.status === "paid" ? "done" : "todo",
-      detail: c.status === "pending_manager" ? `รอ ${name(c.approverId) ?? "หัวหน้า"}` : rejectedAtMgr ? `ไม่อนุมัติ · ${name(c.decidedById)}` : c.status === "approved" || c.status === "paid" ? name(c.decidedById) : null,
+      label: "ตรวจและอนุมัติ",
+      who: deciderRole && (c.status === "rejected" || decided) ? ROLE_LABEL[deciderRole] : "HR",
+      state: c.status === "pending_hr" ? "current" : c.status === "rejected" ? "fail" : decided ? "done" : "todo",
+      detail: c.status === "pending_hr" ? "กำลังรอ HR" : c.status === "rejected" ? `ไม่อนุมัติ · ${name(c.decidedById)}` : decided ? name(c.decidedById) : null,
     },
     {
       label: "จ่ายเงิน",
@@ -119,7 +110,7 @@ export function FlowStepper({ c, db }: { c: Claim; db: Database }) {
     todo: "bg-zinc-200 text-zinc-500",
   };
   return (
-    <ol className="grid grid-cols-4 gap-1" aria-label="ขั้นตอนคำขอ">
+    <ol className="grid grid-cols-3 gap-1" aria-label="ขั้นตอนคำขอ">
       {steps.map((st, i) => (
         <li key={st.label} className="relative flex flex-col items-center text-center" aria-current={st.state === "current" ? "step" : undefined}>
           {i > 0 && <span aria-hidden className={cx("absolute right-1/2 top-3.5 h-0.5 w-full -translate-x-3.5", st.state === "todo" ? "bg-zinc-200" : "bg-emerald-300")} />}
@@ -139,12 +130,11 @@ const ACTION_LABEL: Record<string, string> = {
   submit: "ยื่นคำขอ",
   resubmit: "แก้ไขแล้วส่งใหม่",
   edit: "แก้ไขคำขอ",
-  verify: "HR ตรวจเอกสารผ่าน → ส่งหัวหน้าอนุมัติ",
-  approve: "หัวหน้าอนุมัติ",
+  approve: "อนุมัติ",
   reject: "ไม่อนุมัติ (คืนสิทธิ์)",
   return: "ส่งกลับแก้ไข",
   mark_paid: "บันทึกการจ่ายเงิน",
-  change_result: "แก้ผลตามคำขอแก้ไข (HR อีกคนอนุมัติ)",
+  change_result: "แก้ผลตามคำขอแก้ไข (หัวหน้า HR อนุมัติ)",
   // ข้อมูลเก่าก่อนปรับระบบ
   hr_pass: "HR ตรวจผ่าน",
   assign_amount: "HR กำหนดเงินช่วยเหลือ",

@@ -3,8 +3,7 @@ import { cx } from "@/lib/format";
 
 const STEPS = [
   { key: "submit", label: "พนักงานยื่น", sub: "แนบใบเสร็จ/เอกสาร" },
-  { key: "verify", label: "HR ตรวจเอกสาร", sub: "สิทธิ์ · วงเงิน · เอกสาร" },
-  { key: "approve", label: "หัวหน้าอนุมัติ", sub: "ยืนยันซ้ำ · เห็นวันเงินเข้า" },
+  { key: "approve", label: "HR ตรวจและอนุมัติ", sub: "สิทธิ์ · วงเงิน · เอกสาร" },
   { key: "pay", label: "บัญชีจ่าย", sub: "บันทึกการจ่าย" },
 ] as const;
 

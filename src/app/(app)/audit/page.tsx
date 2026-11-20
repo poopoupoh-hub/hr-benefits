@@ -17,7 +17,6 @@ const ENTITY_LABEL: Record<AuditLog["entity"], string> = {
   employee: "พนักงาน",
   benefit: "สวัสดิการ",
   benefit_limit: "วงเงิน",
-  delegation: "ผู้อนุมัติสำรอง",
   fund: "รอบงบ",
   settings: "ตั้งค่า",
   rbac: "สิทธิ์/Role",
@@ -31,11 +30,8 @@ const ACTION_LABEL: Record<string, string> = {
   submit: "ยื่นคำขอ",
   update: "แก้ไข",
   resubmit: "แก้ไขแล้วส่งใหม่",
-  verify: "HR ตรวจเอกสารผ่าน",
-  approve: "หัวหน้าอนุมัติ",
+  approve: "อนุมัติ",
   reject: "ไม่อนุมัติ",
-  delegate: "ตั้งผู้อนุมัติสำรอง",
-  delegate_cancel: "ยกเลิกผู้อนุมัติสำรอง",
   return: "ส่งกลับแก้ไข",
   record_payment: "บันทึกการจ่าย",
   change_request: "ส่งคำขอแก้ไข",
@@ -63,7 +59,7 @@ export default function AuditPage() {
   const [to, setTo] = useState("");
   const [limit, setLimit] = useState(100);
 
-  // ค้นหา (หน่วงการพิมพ์เล็กน้อย)
+  // ค้นหาฝั่งเซิร์ฟเวอร์ (หน่วงการพิมพ์เล็กน้อย)
   const [qDebounced, setQDebounced] = useState("");
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 300);

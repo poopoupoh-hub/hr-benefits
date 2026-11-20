@@ -306,17 +306,10 @@ export function payDateExplain(decisionDate: ISODate, settings: Pick<Settings, "
 /* ------------------------------------------------------------------ */
 /* Workflow — การเปลี่ยนสถานะที่อนุญาต                                 */
 /* ------------------------------------------------------------------ */
-/**
- * ขั้นตอน: พนักงานยื่น → (1) HR ตรวจเอกสาร/คุณสมบัติ → (2) หัวหน้างานอนุมัติ → บัญชีจ่าย
- * - HR: verify (ส่งต่อหัวหน้า) / return (ส่งกลับผู้ยื่น) / reject (ไม่ผ่านคุณสมบัติ)
- * - หัวหน้างาน: approve / reject (ระบุเหตุผล)
- */
 export const TRANSITIONS = {
-  verify: { from: ["pending_hr"], to: "pending_manager" },
+  approve: { from: ["pending_hr"], to: "approved" },
+  reject: { from: ["pending_hr"], to: "rejected" },
   return: { from: ["pending_hr"], to: "returned" },
-  hr_reject: { from: ["pending_hr"], to: "rejected" },
-  approve: { from: ["pending_manager"], to: "approved" },
-  manager_reject: { from: ["pending_manager"], to: "rejected" },
   resubmit: { from: ["returned"], to: "pending_hr" },
   mark_paid: { from: ["approved"], to: "paid" },
 } as const satisfies Record<string, { from: ClaimStatus[]; to: ClaimStatus }>;

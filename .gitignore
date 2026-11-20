@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+
+# Prisma client เดิม (ไม่ใช้แล้ว)
+/src/generated/

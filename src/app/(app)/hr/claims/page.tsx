@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Page } from "@/components/AppShell";
 import { ClaimRowLink } from "@/components/claims";
 import { Button, Card, Empty, Input, Select } from "@/components/ui";
-import { STATUS_LABEL } from "@/lib/domain/constants";
+import { ROLE_LABEL, STATUS_LABEL } from "@/lib/domain/constants";
 import { beYear, todayLocal, yearOf } from "@/lib/domain/dates";
 import type { ClaimStatus } from "@/lib/domain/types";
 import { dateTH, downloadCSV, money } from "@/lib/format";
@@ -37,7 +37,7 @@ export default function AllClaims() {
 
   const exportCsv = () =>
     downloadCSV(`claims-${year || "all"}.csv`, [
-      ["เลขที่", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ฝ่าย", "ประเภทสวัสดิการ", "เลขใบเสร็จ", "ร้าน", "ยอดขอ", "ยอดได้จริง", "วันที่ในเอกสาร", "วันที่ยื่น", "สถานะ", "HR ผู้ตรวจ", "ผู้อนุมัติ", "วันจ่าย", "อ้างอิงการจ่าย"],
+      ["เลขที่", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ฝ่าย", "ประเภทสวัสดิการ", "เลขใบเสร็จ", "ร้าน", "ยอดขอ", "ยอดได้จริง", "วันที่ในเอกสาร", "วันที่ยื่น", "สถานะ", "ผู้อนุมัติ/ไม่อนุมัติ", "บทบาทผู้ตัดสิน", "วันจ่าย", "อ้างอิงการจ่าย"],
       ...list.map((c) => {
         const e = db.employees.find((x) => x.id === c.employeeId);
         const b = db.benefitTypes.find((x) => x.id === c.benefitTypeId);
@@ -55,8 +55,8 @@ export default function AllClaims() {
           c.receiptDate,
           c.submittedAt.slice(0, 10),
           STATUS_LABEL[c.status],
-          fullName(db.employees.find((x) => x.id === c.verifiedById)),
-          fullName(db.employees.find((x) => x.id === (c.decidedById ?? c.approverId))),
+          c.decidedById ? fullName(db.employees.find((x) => x.id === c.decidedById)) : "",
+          c.decidedById ? ROLE_LABEL[c.decidedRole ?? db.employees.find((x) => x.id === c.decidedById)?.role ?? "hr"] : "",
           p?.paidAt ?? c.payDate ?? "",
           p?.transferRef ?? p?.chequeNo ?? "",
         ];
