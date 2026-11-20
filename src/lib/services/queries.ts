@@ -1,5 +1,5 @@
 /**
- * Query helpers (อ่านอย่างเดียว ไม่แก้ข้อมูล) — ใช้ได้ทั้งฝั่งเซิร์ฟเวอร์และหน้าจอ
+ * Query helpers (อ่านอย่างเดียว ไม่แก้ข้อมูล) — ใช้ได้ทั้ง service layer และหน้าจอ
  */
 import { todayLocal } from "../domain/dates";
 import { checkClaim } from "../domain/rules";

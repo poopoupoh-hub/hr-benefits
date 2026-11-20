@@ -1,8 +1,8 @@
 "use client";
 /**
  * หน้าเข้าสู่ระบบ
- * - เข้าสู่ระบบด้วย "รหัสพนักงาน" หรือ "อีเมล" + รหัสผ่าน (POST /api/auth/login)
- * - ไม่ให้ผู้ใช้เลือก/เห็นบทบาท — ระบบอ่าน role จากฐานข้อมูลแล้วพาไปหน้าแรกของบทบาทนั้นเอง
+ * - เข้าสู่ระบบด้วย "รหัสพนักงาน" หรือ "อีเมล" + รหัสผ่าน (ตรวจกับข้อมูลใน localStorage)
+ * - ไม่ให้ผู้ใช้เลือก/เห็นบทบาท — ระบบอ่าน role จากข้อมูลพนักงานแล้วพาไปหน้าแรกของบทบาทนั้นเอง
  * - สลับภาษา TH / EN ได้ (จำค่าที่เลือกไว้ใน localStorage)
  */
 import { CalendarClock, Eye, EyeOff, FileText, Info, Loader2, ShieldCheck } from "lucide-react";
@@ -10,7 +10,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { LogoMark, ORG_NAME } from "@/components/Logo";
 import { HOME_BY_ROLE } from "@/components/nav";
-import { ROLE_LABEL } from "@/lib/domain/constants";
 import { login } from "@/lib/client/api";
 import type { Role } from "@/lib/domain/types";
 import { cx } from "@/lib/format";
@@ -91,7 +90,7 @@ function readStored(key: string): string | null {
   }
 }
 
-/** แปลข้อความผิดพลาดจากเซิร์ฟเวอร์ (ภาษาไทย) เป็นอังกฤษ */
+/** แปลข้อความผิดพลาดจากระบบ (ภาษาไทย) เป็นอังกฤษ */
 function translateError(msg: string, lang: Lang) {
   if (lang === "th") return msg;
   if (msg.includes("ไม่ถูกต้อง")) return "Incorrect employee ID/email or password";
@@ -103,7 +102,6 @@ function translateError(msg: string, lang: Lang) {
 export default function LoginPage() {
   const me = useMe();
   const orgName = useAppState().public?.orgName;
-  const demoAccounts = useAppState().public?.demoAccounts ?? [];
   const router = useRouter();
   // หน้านี้เรนเดอร์ฝั่ง client เท่านั้น (Providers รอโหลดข้อมูลก่อน) จึงอ่าน localStorage ตอนสร้าง state ได้
   const [lang, setLang] = useState<Lang>(() => (readStored(LANG_KEY) === "en" ? "en" : "th"));
@@ -324,31 +322,6 @@ export default function LoginPage() {
                 {busy ? t.signingIn : t.signIn}
               </button>
             </form>
-
-            {demoAccounts.length > 0 && (
-              <div className="mt-6 border-t border-zinc-200 pt-4">
-                <p className="mb-2 text-center text-xs text-zinc-500">{lang === "th" ? "เดโม: เลือกผู้ใช้ตัวอย่าง (รหัสผ่าน 1234)" : "Demo: pick a sample user (password 1234)"}</p>
-                <div className="grid gap-1.5 sm:grid-cols-2">
-                  {demoAccounts.map((a) => (
-                    <button
-                      key={a.code}
-                      type="button"
-                      onClick={() => {
-                        setId(a.code);
-                        setPw("1234");
-                        setError("");
-                      }}
-                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:border-brand-300 hover:bg-brand-50 ${id === a.code ? "border-brand-400 bg-brand-50" : "border-zinc-200"}`}
-                    >
-                      <span className="truncate">
-                        <span className="font-medium text-ink-900">{a.name}</span> <span className="text-zinc-400">{a.code}</span>
-                      </span>
-                      <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600">{ROLE_LABEL[a.role]}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-zinc-500">
               <ShieldCheck className="size-3.5" /> {t.secure}

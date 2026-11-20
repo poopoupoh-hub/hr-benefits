@@ -14,7 +14,8 @@ import { useAsync, useDB, useMe } from "@/lib/hooks";
 import { fullName } from "@/lib/services/core";
 
 const PIPE: { s: ClaimStatus; label: string; tone: "gray" | "amber" | "blue" | "green" | "red" | "brand" }[] = [
-  { s: "pending_hr", label: "รอ HR", tone: "gray" },
+  { s: "pending_hr", label: "รอ HR ตรวจ", tone: "gray" },
+  { s: "pending_manager", label: "รอหัวหน้าอนุมัติ", tone: "amber" },
   { s: "returned", label: "ส่งกลับแก้ไข", tone: "brand" },
   { s: "approved", label: "อนุมัติแล้ว (รอจ่าย)", tone: "green" },
   { s: "paid", label: "จ่ายแล้ว", tone: "blue" },

@@ -12,6 +12,7 @@ import { Alert, Badge, Button, Card, Modal, Select, useToast } from "./ui";
 
 const STATUS_TONE: Record<ClaimStatus, "gray" | "amber" | "blue" | "green" | "red" | "orange" | "violet"> = {
   pending_hr: "amber",
+  pending_manager: "blue",
   returned: "orange",
   approved: "violet",
   paid: "green",
@@ -56,6 +57,10 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
           {cut && <p className="text-[11px] text-zinc-500 tabular">ขอเบิก {money(c.amountRequested)}</p>}
         </div>
         <div className="text-right text-xs">
+          {c.status === "pending_hr" && <p className="text-amber-700">ขั้นที่ 1/2 · HR ตรวจเอกสาร</p>}
+          {c.status === "pending_manager" && (
+            <p className="text-sky-700">ขั้นที่ 2/2 · รอ {db.employees.find((x) => x.id === c.approverId)?.firstName ?? "หัวหน้า"} อนุมัติ</p>
+          )}
           {c.payDate && c.status === "approved" && <p className="text-violet-700">กำหนดจ่าย {dateTH(c.payDate)}</p>}
           {c.status === "paid" && <p className="text-emerald-700">เงินเข้า {dateTH(c.payDate)}</p>}
           {c.status === "returned" && <p className="text-brand-700">ต้องแก้ไข</p>}
@@ -78,15 +83,68 @@ export function ClaimCard({ c, db, showEmployee, href, onClick, selected }: { c:
   return body;
 }
 
+type StepState = "done" | "current" | "warn" | "fail" | "todo";
+
+/** แถบขั้นตอน: ยื่น → HR ตรวจเอกสาร → หัวหน้าอนุมัติ → บัญชีจ่าย พร้อมชื่อผู้ดำเนินการแต่ละขั้น */
+export function FlowStepper({ c, db }: { c: Claim; db: Database }) {
+  const name = (id?: string | null) => (id ? fullName(db.employees.find((e) => e.id === id)) : null);
+  const rejectedAtHr = c.status === "rejected" && !c.verifiedById;
+  const rejectedAtMgr = c.status === "rejected" && !!c.verifiedById;
+  const steps: { label: string; who: string; state: StepState; detail: string | null }[] = [
+    { label: "ยื่นคำขอ", who: "พนักงาน", state: c.status === "returned" ? "warn" : "done", detail: c.status === "returned" ? "รอผู้ยื่นแก้ไข" : name(c.employeeId) },
+    {
+      label: "ตรวจเอกสาร",
+      who: "HR",
+      state: c.status === "pending_hr" ? "current" : rejectedAtHr ? "fail" : c.status === "returned" ? "todo" : "done",
+      detail: c.status === "pending_hr" ? "กำลังรอ HR" : rejectedAtHr ? `ไม่ผ่าน · ${name(c.decidedById)}` : c.status === "returned" ? null : name(c.verifiedById),
+    },
+    {
+      label: "อนุมัติ",
+      who: "หัวหน้างาน",
+      state: c.status === "pending_manager" ? "current" : rejectedAtMgr ? "fail" : c.status === "approved" || c.status === "paid" ? "done" : "todo",
+      detail: c.status === "pending_manager" ? `รอ ${name(c.approverId) ?? "หัวหน้า"}` : rejectedAtMgr ? `ไม่อนุมัติ · ${name(c.decidedById)}` : c.status === "approved" || c.status === "paid" ? name(c.decidedById) : null,
+    },
+    {
+      label: "จ่ายเงิน",
+      who: "บัญชี",
+      state: c.status === "paid" ? "done" : c.status === "approved" ? "current" : "todo",
+      detail: c.status === "approved" && c.payDate ? `กำหนด ${dateTH(c.payDate)}` : c.status === "paid" ? "จ่ายแล้ว" : null,
+    },
+  ];
+  const dot: Record<StepState, string> = {
+    done: "bg-emerald-500 text-white",
+    current: "bg-brand-500 text-white ring-4 ring-brand-100",
+    warn: "bg-amber-500 text-white ring-4 ring-amber-100",
+    fail: "bg-red-500 text-white",
+    todo: "bg-zinc-200 text-zinc-500",
+  };
+  return (
+    <ol className="grid grid-cols-4 gap-1" aria-label="ขั้นตอนคำขอ">
+      {steps.map((st, i) => (
+        <li key={st.label} className="relative flex flex-col items-center text-center" aria-current={st.state === "current" ? "step" : undefined}>
+          {i > 0 && <span aria-hidden className={cx("absolute right-1/2 top-3.5 h-0.5 w-full -translate-x-3.5", st.state === "todo" ? "bg-zinc-200" : "bg-emerald-300")} />}
+          <span className={cx("relative z-10 grid size-7 place-items-center rounded-full text-xs font-semibold", dot[st.state])}>
+            {st.state === "done" ? <Check className="size-4" /> : st.state === "fail" ? <X className="size-4" /> : i + 1}
+          </span>
+          <span className="mt-1.5 text-[12.5px] font-medium leading-tight">{st.label}</span>
+          <span className="text-[11px] text-zinc-500">{st.who}</span>
+          {st.detail && <span className={cx("mt-0.5 line-clamp-2 text-[11px] leading-tight", st.state === "fail" ? "text-red-600" : st.state === "current" ? "text-brand-600" : "text-zinc-500")}>{st.detail}</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 const ACTION_LABEL: Record<string, string> = {
   submit: "ยื่นคำขอ",
   resubmit: "แก้ไขแล้วส่งใหม่",
   edit: "แก้ไขคำขอ",
-  approve: "อนุมัติ",
+  verify: "HR ตรวจเอกสารผ่าน → ส่งหัวหน้าอนุมัติ",
+  approve: "หัวหน้าอนุมัติ",
   reject: "ไม่อนุมัติ (คืนสิทธิ์)",
   return: "ส่งกลับแก้ไข",
   mark_paid: "บันทึกการจ่ายเงิน",
-  change_result: "แก้ผลตามคำขอแก้ไข (หัวหน้า HR อนุมัติ)",
+  change_result: "แก้ผลตามคำขอแก้ไข (HR อีกคนอนุมัติ)",
   // ข้อมูลเก่าก่อนปรับระบบ
   hr_pass: "HR ตรวจผ่าน",
   assign_amount: "HR กำหนดเงินช่วยเหลือ",
@@ -175,7 +233,7 @@ export function AttachmentList({ items, canView = true }: { items: AttachmentMet
   );
 }
 
-/** แนบเอกสาร: เลือกประเภทเอกสารต่อไฟล์ ไฟล์ถูกเก็บใน file store แยกจากฐานข้อมูลหลัก */
+/** แนบเอกสาร: เลือกประเภทเอกสารต่อไฟล์ ไฟล์ถูกเก็บใน IndexedDB แยกจากข้อมูลหลัก */
 export function AttachmentPicker({ value, onChange, requiredDocs }: { value: AttachmentMeta[]; onChange: (v: AttachmentMeta[]) => void; requiredDocs: string[] }) {
   const toast = useToast();
   const ref = useRef<HTMLInputElement>(null);

@@ -134,11 +134,15 @@ describe("ใบเสร็จซ้ำ / การจ่าย / ลำดั�
     expect(paymentError({ method: "cash", paidAt: "2026-12-01" }, TODAY)).toContain("อนาคต");
     expect(paymentError({ method: "cash", paidAt: TODAY }, TODAY)).toBeNull();
   });
-  it("เปลี่ยนสถานะได้ตามลำดับเท่านั้น", () => {
-    expect(canTransition("approve", "pending_hr")).toBe(true);
+  it("เปลี่ยนสถานะได้ตามลำดับเท่านั้น: HR ตรวจ → หัวหน้าอนุมัติ → จ่าย", () => {
+    expect(canTransition("verify", "pending_hr")).toBe(true);
+    expect(canTransition("approve", "pending_hr")).toBe(false); // ข้าม HR ไม่ได้
+    expect(canTransition("approve", "pending_manager")).toBe(true);
     expect(canTransition("approve", "returned")).toBe(false);
-    expect(canTransition("mark_paid", "pending_hr")).toBe(false);
+    expect(canTransition("return", "pending_manager")).toBe(false); // หัวหน้าไม่ส่งกลับผู้ยื่น
+    expect(canTransition("mark_paid", "pending_manager")).toBe(false);
     expect(canTransition("resubmit", "returned")).toBe(true);
-    expect(canTransition("reject", "approved")).toBe(false);
+    expect(canTransition("hr_reject", "approved")).toBe(false);
+    expect(canTransition("manager_reject", "pending_manager")).toBe(true);
   });
 });

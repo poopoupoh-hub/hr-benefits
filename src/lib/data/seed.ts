@@ -11,7 +11,8 @@ export { DB_VERSION } from "../domain/constants";
 import { DB_VERSION } from "../domain/constants";
 
 const T0 = "2026-01-05T09:00:00+07:00";
-const pw = hashSecret("1234");
+/** hash ครั้งเดียวต่อการสร้าง seed (ทุกบัญชีใช้รหัส 1234) */
+let pw = "";
 
 function emp(
   id: string,
@@ -186,14 +187,23 @@ function ev(at: string, actorId: string, action: ClaimEvent["action"], fromStatu
 }
 
 export function createSeed(): Database {
+  pw = hashSecret("1234");
+  /*
+   * สายบังคับบัญชา (ผู้อนุมัติขั้นที่ 2 = หัวหน้างานคนแรกที่มีสิทธิ์อนุมัติ):
+   *   ประเสริฐ EMP-0040 (ผู้บริหาร, Manager)
+   *   ├─ ธนา EMP-0020 (ผู้จัดการ IT, Manager) ── สมชาย, สุดา, ปิติ, มานี, ศิริ(Admin)
+   *   ├─ ประภา EMP-0011 (HR) ── วิภา EMP-0010 (HR)   ← HR สองคนตรวจคำขอ/คำขอแก้ไขของกันและกัน
+   *   └─ กมล EMP-0030 (บัญชี)
+   * คำขอของ HR → ประภาไม่มีสิทธิ์อนุมัติ จึงข้ามไปประเสริฐ · คำขอของประเสริฐ (ไม่มีหัวหน้า) → ธนา (หัวหน้างานระดับสูงสุดคนอื่น)
+   */
   const employees: Employee[] = [
-    emp("e-0040", "EMP-0040", "ประเสริฐ", "มั่นคง", "d-mgt", "p-l4", null, "permanent", "2015-04-01", "employee"),
-    emp("e-0020", "EMP-0020", "ธนา", "หัวหน้า", "d-it", "p-l3", "e-0040", "permanent", "2018-06-01", "employee"),
+    emp("e-0040", "EMP-0040", "ประเสริฐ", "มั่นคง", "d-mgt", "p-l4", null, "permanent", "2015-04-01", "manager"),
+    emp("e-0020", "EMP-0020", "ธนา", "หัวหน้า", "d-it", "p-l3", "e-0040", "permanent", "2018-06-01", "manager"),
     emp("e-0001", "EMP-0001", "สมชาย", "ใจดี", "d-it", "p-l1", "e-0020", "permanent", "2022-03-01", "employee"),
     emp("e-0002", "EMP-0002", "สุดา", "รักงาน", "d-it", "p-l1", "e-0020", "probation", "2026-08-15", "employee"),
     emp("e-0003", "EMP-0003", "ปิติ", "ขยัน", "d-it", "p-l1", "e-0020", "contract", "2025-04-01", "employee", { contractEndDate: "2027-03-31" }),
     emp("e-0004", "EMP-0004", "มานี", "มีสุข", "d-it", "p-l2", "e-0020", "permanent", "2020-11-16", "employee"),
-    emp("e-0011", "EMP-0011", "ประภา", "หัวหน้าบุคคล", "d-hr", "p-l3", "e-0040", "permanent", "2016-02-01", "hr_head"),
+    emp("e-0011", "EMP-0011", "ประภา", "หัวหน้าบุคคล", "d-hr", "p-l3", "e-0040", "permanent", "2016-02-01", "hr"),
     emp("e-0010", "EMP-0010", "วิภา", "บุคคล", "d-hr", "p-l1", "e-0011", "permanent", "2019-01-07", "hr"),
     emp("e-0030", "EMP-0030", "กมล", "บัญชี", "d-fin", "p-l1", "e-0040", "permanent", "2021-02-01", "finance"),
     emp("e-0050", "EMP-0050", "ศิริ", "ผู้ดูแล", "d-it", "p-l2", "e-0020", "permanent", "2020-05-11", "admin"),
@@ -219,12 +229,16 @@ export function createSeed(): Database {
       ],
       status: "paid",
       submittedAt: "2026-09-01T09:00:00+07:00",
-      decidedById: "e-0010",
+      verifiedById: "e-0010",
+      verifiedAt: "2026-09-01T15:00:00+07:00",
+      approverId: "e-0020",
+      decidedById: "e-0020",
       decidedAt: "2026-09-02T11:00:00+07:00",
       payDate: computePayDate("2026-09-02", S),
       history: [
         ev("2026-09-01T09:00:00+07:00", "e-0001", "submit", undefined, "pending_hr"),
-        ev("2026-09-02T11:00:00+07:00", "e-0010", "approve", "pending_hr", "approved", "เอกสารครบ"),
+        ev("2026-09-01T15:00:00+07:00", "e-0010", "verify", "pending_hr", "pending_manager", "เอกสารครบ · ส่งให้ ธนา หัวหน้า อนุมัติ"),
+        ev("2026-09-02T11:00:00+07:00", "e-0020", "approve", "pending_manager", "approved"),
         ev("2026-09-30T15:00:00+07:00", "e-0030", "mark_paid", "approved", "paid", "โอนเงิน · PAY-2569-09-001"),
       ],
     }),
@@ -238,9 +252,15 @@ export function createSeed(): Database {
       amountRequested: 800,
       receiptDate: "2026-10-21",
       attachments: [att("seed-a3", "receipt_opd.jpg", "ใบเสร็จ", "2026-10-21T10:10:00+07:00")],
-      status: "pending_hr",
+      status: "pending_manager",
       submittedAt: "2026-10-21T10:10:00+07:00",
-      history: [ev("2026-10-21T10:10:00+07:00", "e-0001", "submit", undefined, "pending_hr")],
+      verifiedById: "e-0010",
+      verifiedAt: "2026-10-22T09:30:00+07:00",
+      approverId: "e-0020",
+      history: [
+        ev("2026-10-21T10:10:00+07:00", "e-0001", "submit", undefined, "pending_hr"),
+        ev("2026-10-22T09:30:00+07:00", "e-0010", "verify", "pending_hr", "pending_manager", "ส่งให้ ธนา หัวหน้า อนุมัติ (หัวหน้างานโดยตรง)"),
+      ],
     }),
     claim({
       id: "c-0003",
@@ -254,12 +274,16 @@ export function createSeed(): Database {
       attachments: [att("seed-a4", "dental_receipt.jpg", "ใบเสร็จ", "2026-10-28T13:00:00+07:00")],
       status: "approved",
       submittedAt: "2026-10-28T13:00:00+07:00",
-      decidedById: "e-0010",
+      verifiedById: "e-0010",
+      verifiedAt: "2026-10-29T10:00:00+07:00",
+      approverId: "e-0020",
+      decidedById: "e-0020",
       decidedAt: "2026-11-02T09:15:00+07:00",
       payDate: computePayDate("2026-11-02", S),
       history: [
         ev("2026-10-28T13:00:00+07:00", "e-0004", "submit", undefined, "pending_hr"),
-        ev("2026-11-02T09:15:00+07:00", "e-0010", "approve", "pending_hr", "approved", "เอกสารครบ"),
+        ev("2026-10-29T10:00:00+07:00", "e-0010", "verify", "pending_hr", "pending_manager", "เอกสารครบ · ส่งให้ ธนา หัวหน้า อนุมัติ"),
+        ev("2026-11-02T09:15:00+07:00", "e-0020", "approve", "pending_manager", "approved"),
       ],
     }),
     claim({
@@ -313,12 +337,16 @@ export function createSeed(): Database {
       ],
       status: "paid",
       submittedAt: "2026-05-26T09:00:00+07:00",
-      decidedById: "e-0011",
+      verifiedById: "e-0011",
+      verifiedAt: "2026-05-26T14:00:00+07:00",
+      approverId: "e-0040",
+      decidedById: "e-0040",
       decidedAt: "2026-05-27T10:00:00+07:00",
       payDate: computePayDate("2026-05-27", S),
       history: [
         ev("2026-05-26T09:00:00+07:00", "e-0010", "submit", undefined, "pending_hr"),
-        ev("2026-05-27T10:00:00+07:00", "e-0011", "approve", "pending_hr", "approved", "HR ยื่นเอง — หัวหน้า HR เป็นผู้พิจารณา"),
+        ev("2026-05-26T14:00:00+07:00", "e-0011", "verify", "pending_hr", "pending_manager", "HR ยื่นเอง — HR อีกคนตรวจเอกสาร · ส่งให้ ประเสริฐ มั่นคง อนุมัติ (หัวหน้าลำดับถัดไปในสายบังคับบัญชา)"),
+        ev("2026-05-27T10:00:00+07:00", "e-0040", "approve", "pending_manager", "approved"),
         ev("2026-05-29T14:00:00+07:00", "e-0030", "mark_paid", "approved", "paid", "เช็ค · CHQ-0001452"),
       ],
     }),
@@ -342,7 +370,7 @@ export function createSeed(): Database {
       rejectReason: "เป็นค่าใช้จ่ายด้านความงาม ไม่อยู่ในเงื่อนไขสวัสดิการ",
       history: [
         ev("2026-09-21T09:00:00+07:00", "e-0004", "submit", undefined, "pending_hr"),
-        ev("2026-09-22T10:00:00+07:00", "e-0010", "reject", "pending_hr", "rejected", "เป็นค่าใช้จ่ายด้านความงาม ไม่อยู่ในเงื่อนไขสวัสดิการ"),
+        ev("2026-09-22T10:00:00+07:00", "e-0010", "reject", "pending_hr", "rejected", "HR: ไม่ผ่านการตรวจ — เป็นค่าใช้จ่ายด้านความงาม ไม่อยู่ในเงื่อนไขสวัสดิการ"),
       ],
     }),
     claim({
@@ -419,12 +447,16 @@ export function createSeed(): Database {
         attachments: [att(`seed-t${i + 1}`, `opd_${i + 1}.jpg`, "ใบเสร็จ", `${date}T09:00:00+07:00`)],
         status: "paid",
         submittedAt: `${date}T09:00:00+07:00`,
-        decidedById: "e-0010",
+        verifiedById: "e-0010",
+        verifiedAt: `${date}T11:00:00+07:00`,
+        approverId: "e-0040",
+        decidedById: "e-0040",
         decidedAt: `${date}T15:00:00+07:00`,
         payDate: computePayDate(date, S),
         history: [
           ev(`${date}T09:00:00+07:00`, "e-0020", "submit", undefined, "pending_hr"),
-          ev(`${date}T15:00:00+07:00`, "e-0010", "approve", "pending_hr", "approved"),
+          ev(`${date}T11:00:00+07:00`, "e-0010", "verify", "pending_hr", "pending_manager"),
+          ev(`${date}T15:00:00+07:00`, "e-0040", "approve", "pending_manager", "approved"),
           ev(`${date}T16:00:00+07:00`, "e-0030", "mark_paid", "approved", "paid", `โอนเงิน · ${ref}`),
         ],
       }),

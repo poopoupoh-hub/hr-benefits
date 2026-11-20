@@ -6,7 +6,8 @@ import { Page } from "@/components/AppShell";
 import { Alert, Button, Card, Field, Input, KV, Modal, SectionTitle, Select, Switch, useAction, useToast } from "@/components/ui";
 import type { Settings } from "@/lib/domain/types";
 import { DB_VERSION } from "@/lib/domain/constants";
-import { dateTimeFullTH, downloadBlob } from "@/lib/format";
+import { dateTimeFullTH, downloadBlob, fileSize } from "@/lib/format";
+import { DB_KEY } from "@/lib/data/db";
 import { useDB } from "@/lib/hooks";
 import { api } from "@/lib/client/api";
 
@@ -106,20 +107,21 @@ export default function SystemSettings() {
                 if (ok) router.refresh();
               }}
             />
-            <p className="text-xs text-zinc-500">ไฟล์สำรอง (JSON) มีข้อมูลทุกตารางรวม Audit Log · ไฟล์แนบอยู่ในโฟลเดอร์ storage/uploads ให้สำรองโฟลเดอร์นี้ควบคู่กัน</p>
+            <p className="text-xs text-zinc-500">ไฟล์สำรอง (JSON) มีข้อมูลทุกตารางรวม Audit Log · ไฟล์แนบ (IndexedDB) ไม่รวมในไฟล์สำรอง · ข้อมูลอยู่ในเบราว์เซอร์นี้เท่านั้น ล้างข้อมูลเว็บไซต์/เปลี่ยนเครื่อง = ข้อมูลหาย ควรสำรองสม่ำเสมอ</p>
           </Card>
 
           <SectionTitle>ข้อมูลระบบ</SectionTitle>
           <Card className="p-4">
             <KV k="เวอร์ชัน" v="1.0.0" />
             <KV k="Schema" v={`v${DB_VERSION}`} />
-            <KV k="ฐานข้อมูล" v="Prisma ORM (SQLite / PostgreSQL ตาม DATABASE_URL)" />
-            <KV k="ที่เก็บไฟล์แนบ" v="ดิสก์เซิร์ฟเวอร์ storage/uploads (แยกจากฐานข้อมูลหลัก)" />
+            <KV k="ที่เก็บข้อมูล" v="localStorage ของเบราว์เซอร์ (คีย์ hr-benefits:db)" />
+            <KV k="พื้นที่ที่ใช้" v={<StorageUsage />} />
+            <KV k="ที่เก็บไฟล์แนบ" v="IndexedDB ของเบราว์เซอร์ (แยกจากข้อมูลหลัก)" />
           </Card>
 
           <SectionTitle>Danger zone</SectionTitle>
           <Alert tone="error">
-            <p>รีเซ็ตฐานข้อมูลกลับเป็นข้อมูลตัวอย่าง (Mock data) — ข้อมูลทั้งหมดในฐานข้อมูลจะถูกแทนที่ ผู้ใช้ทุกคนได้รับผล</p>
+            <p>รีเซ็ตกลับเป็นข้อมูลตัวอย่าง (Mock data) — ข้อมูลและไฟล์แนบทั้งหมดในเบราว์เซอร์นี้จะถูกแทนที่</p>
             <Button variant="danger" size="sm" className="mt-2" icon={<RotateCcw className="size-4" />} onClick={() => setConfirmReset(true)}>
               รีเซ็ตข้อมูลเดโม
             </Button>
@@ -152,5 +154,22 @@ export default function SystemSettings() {
         <p className="text-sm text-zinc-600">แนะนำให้สำรองข้อมูลก่อน การรีเซ็ตไม่สามารถย้อนกลับได้</p>
       </Modal>
     </Page>
+  );
+}
+
+/** ขนาดข้อมูลใน localStorage (เบราว์เซอร์ส่วนใหญ่จำกัด ~5 MB ต่อเว็บไซต์) */
+function StorageUsage() {
+  const [bytes] = useState(() => {
+    try {
+      return (localStorage.getItem(DB_KEY)?.length ?? 0) * 2;
+    } catch {
+      return 0;
+    }
+  });
+  const pct = Math.min(100, (bytes / (5 * 1024 * 1024)) * 100);
+  return (
+    <span className={pct > 80 ? "text-red-600" : undefined}>
+      {fileSize(bytes)} / ~5 MB ({pct.toFixed(0)}%)
+    </span>
   );
 }

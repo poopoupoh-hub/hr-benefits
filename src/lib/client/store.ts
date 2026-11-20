@@ -1,21 +1,17 @@
 /**
- * ข้อมูลฝั่งหน้าจอ — สำเนาข้อมูลที่ผู้ใช้มีสิทธิ์เห็น (ตัดตามบทบาทโดยเซิร์ฟเวอร์แล้ว)
- * โหลดจาก GET /api/state และโหลดใหม่ทุกครั้งหลังทำรายการ / กลับมาที่หน้าต่าง
+ * ข้อมูลฝั่งหน้าจอ — สำเนาข้อมูลที่ผู้ใช้มีสิทธิ์เห็น (ตัดตามบทบาทด้วย scopeDatabase แล้ว)
+ * อ่านจาก localStorage และโหลดใหม่ทุกครั้งหลังทำรายการ / เมื่อแท็บอื่นแก้ข้อมูล (storage event)
  */
-import type { Database, Employee, Role } from "../domain/types";
-
-export interface DemoAccount {
-  code: string;
-  name: string;
-  role: Role;
-  employmentType: Employee["employmentType"];
-}
+import { getDB } from "../data/db";
+import { scopeDatabase } from "../data/scope";
+import { sessionUser } from "../data/session";
+import type { Database, Employee } from "../domain/types";
 
 export interface AppState {
   loaded: boolean;
   me: Employee | null;
   db: Database | null;
-  public: { orgName: string; demoAccounts: DemoAccount[] } | null;
+  public: { orgName: string } | null;
   error: string | null;
 }
 
@@ -35,23 +31,19 @@ function set(next: AppState) {
   listeners.forEach((l) => l());
 }
 
-let inflight: Promise<void> | null = null;
-
 export function refresh(): Promise<void> {
-  if (inflight) return inflight;
-  inflight = (async () => {
-    try {
-      const res = await fetch("/api/state", { cache: "no-store", credentials: "same-origin" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error ?? `โหลดข้อมูลไม่สำเร็จ (${res.status})`);
-      set({ loaded: true, me: j.me ?? null, db: j.db ?? null, public: j.public ?? null, error: null });
-    } catch (e) {
-      set({ ...state, loaded: true, error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      inflight = null;
+  try {
+    const db = getDB();
+    const me = sessionUser(db.employees);
+    if (!me) set({ loaded: true, me: null, db: null, public: { orgName: db.settings.orgName }, error: null });
+    else {
+      const scoped = scopeDatabase(db, me);
+      set({ loaded: true, me: scoped.employees.find((e) => e.id === me.id) ?? null, db: scoped, public: null, error: null });
     }
-  })();
-  return inflight;
+  } catch (e) {
+    set({ ...state, loaded: true, error: e instanceof Error ? e.message : String(e) });
+  }
+  return Promise.resolve();
 }
 
 export function clearState() {

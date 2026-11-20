@@ -18,7 +18,7 @@ const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
 type Draft = { minLevel: string; maxLevel: string; perClaim: string; perYear: string; maxCount: string; reason: string };
 
-/** วงเงินสวัสดิการตามระดับตำแหน่ง — การแก้ไขเป็น "คำขอแก้วงเงิน" ให้หัวหน้า HR อนุมัติ */
+/** วงเงินสวัสดิการตามระดับตำแหน่ง — การแก้ไขเป็น "คำขอแก้วงเงิน" ให้ HR คนอื่นอนุมัติ */
 export default function LimitsPage() {
   const db = useDB();
   const act = useAction();
@@ -49,7 +49,7 @@ export default function LimitsPage() {
           { minLevel: Number(d.minLevel), maxLevel: Number(d.maxLevel), perClaim: numOrNull(d.perClaim), perYear: numOrNull(d.perYear), maxCount: numOrNull(d.maxCount) },
           d.reason,
         ),
-      "ส่งคำขอแก้วงเงินแล้ว — มีผลเมื่อหัวหน้า HR อนุมัติ",
+      "ส่งคำขอแก้วงเงินแล้ว — มีผลเมื่อ HR คนอื่นอนุมัติ",
     ).then((ok) => ok && setEdit(null));
   };
 
@@ -58,7 +58,7 @@ export default function LimitsPage() {
       <Alert tone="info" className="mb-4">
         การแก้วงเงินเป็น <b>คำขอแก้ไข</b> ยังไม่มีผลทันที — เมื่อ
         <Link href="/hr/changes" className="mx-1 font-medium underline">
-          หัวหน้า HR อนุมัติ
+          HR คนอื่นอนุมัติ
         </Link>
         ระบบเพิ่มวงเงินฉบับใหม่ (ไม่ทับฉบับเดิม) · พนักงานที่ย้ายระดับกลางปีใช้วงเงินระดับใหม่ ยอดที่ใช้ไปแล้วนับต่อ
       </Alert>

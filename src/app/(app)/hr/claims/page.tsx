@@ -37,7 +37,7 @@ export default function AllClaims() {
 
   const exportCsv = () =>
     downloadCSV(`claims-${year || "all"}.csv`, [
-      ["เลขที่", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ฝ่าย", "ประเภทสวัสดิการ", "เลขใบเสร็จ", "ร้าน", "ยอดขอ", "ยอดได้จริง", "วันที่ในเอกสาร", "วันที่ยื่น", "สถานะ", "วันจ่าย", "อ้างอิงการจ่าย"],
+      ["เลขที่", "รหัสพนักงาน", "ชื่อ-นามสกุล", "ฝ่าย", "ประเภทสวัสดิการ", "เลขใบเสร็จ", "ร้าน", "ยอดขอ", "ยอดได้จริง", "วันที่ในเอกสาร", "วันที่ยื่น", "สถานะ", "HR ผู้ตรวจ", "ผู้อนุมัติ", "วันจ่าย", "อ้างอิงการจ่าย"],
       ...list.map((c) => {
         const e = db.employees.find((x) => x.id === c.employeeId);
         const b = db.benefitTypes.find((x) => x.id === c.benefitTypeId);
@@ -55,6 +55,8 @@ export default function AllClaims() {
           c.receiptDate,
           c.submittedAt.slice(0, 10),
           STATUS_LABEL[c.status],
+          fullName(db.employees.find((x) => x.id === c.verifiedById)),
+          fullName(db.employees.find((x) => x.id === (c.decidedById ?? c.approverId))),
           p?.paidAt ?? c.payDate ?? "",
           p?.transferRef ?? p?.chequeNo ?? "",
         ];

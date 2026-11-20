@@ -1,26 +1,13 @@
 import type { NextConfig } from "next";
 
-async function securityHeaders() {
-  return [
-    {
-      source: "/:path*",
-      headers: [
-        { key: "X-Frame-Options", value: "DENY" },
-        { key: "X-Content-Type-Options", value: "nosniff" },
-        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
-      ],
-    },
-  ];
-}
-
+/**
+ * ระบบเวอร์ชันนี้เก็บข้อมูลใน localStorage ของเบราว์เซอร์ ไม่มี Backend/ฐานข้อมูล
+ * จึง build เป็น static site (`out/`) นำไปวางบนเว็บเซิร์ฟเวอร์ใดก็ได้ (Nginx, GitHub Pages, Netlify, Vercel ฯลฯ)
+ */
 const nextConfig: NextConfig = {
-  cacheComponents: true,
-  partialPrefetching: true,
-  headers: securityHeaders,
+  output: "export",
+  // ไม่ใช้ cacheComponents / partialPrefetching เพราะต้องมีเซิร์ฟเวอร์ (static export ไม่รองรับ)
   poweredByHeader: false,
-  // native driver ของฐานข้อมูล ต้องรันนอก bundle
-  serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "pg", "@prisma/adapter-pg"],
   turbopack: {
     rules: {
       "*.css": {

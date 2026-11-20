@@ -1,6 +1,6 @@
 /**
- * Authentication service (ฝั่งเซิร์ฟเวอร์) — ตรวจรหัสพนักงาน + รหัสผ่าน
- * การออก session cookie อยู่ที่ src/lib/server/session.ts
+ * Authentication service — ตรวจรหัสพนักงาน + รหัสผ่าน
+ * การออก session อยู่ที่ src/lib/data/session.ts (localStorage)
  */
 import { commit, getDB } from "../data/db";
 import { verifySecret } from "../security/hash";
@@ -10,7 +10,7 @@ const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000;
 const fails = new Map<string, { n: number; until: number }>();
 
-/** เข้าสู่ระบบด้วย "รหัสพนักงาน" หรือ "อีเมล" + รหัสผ่าน — บทบาท (role) ดึงจากฐานข้อมูล ผู้ใช้ไม่ต้องเลือกเอง */
+/** เข้าสู่ระบบด้วย "รหัสพนักงาน" หรือ "อีเมล" + รหัสผ่าน — บทบาท (role) ดึงจากข้อมูลพนักงาน ผู้ใช้ไม่ต้องเลือกเอง */
 export function login(code: string, password: string) {
   const raw = code.trim();
   const c = raw.toUpperCase();

@@ -6,79 +6,99 @@
 |---|---|---|
 | Presentation | หน้าจอ, ฟอร์ม, ซ่อนเมนูตามสิทธิ์ | `src/app/**`, `src/components/**`, `src/lib/client/*` |
 | Application | กติกาธุรกิจ (ฟังก์ชันบริสุทธิ์ มี unit test) | `src/lib/domain/rules.ts`, `types.ts`, `constants.ts` |
-| Service | workflow, ตรวจสิทธิ์ (RBAC), Audit Log, อีเมล | `src/lib/services/*.ts` |
-| Data Access | transaction, แปลงตาราง ↔ โมเดล, ตัดข้อมูลตามสิทธิ์, ไฟล์แนบ | `src/lib/server/*.ts` |
-| Database | ตาราง + Audit Log | `prisma/schema.prisma`, `prisma/migrations/` |
+| Service | workflow, ตรวจสิทธิ์ (RBAC), สายอนุมัติ, Audit Log, อีเมล | `src/lib/services/*.ts` |
+| Data Access | ที่เก็บข้อมูล, session, ไฟล์แนบ, ตัดข้อมูลตามสิทธิ์ | `src/lib/data/*.ts` |
+| Database | localStorage (ข้อมูลหลัก) + IndexedDB (ไฟล์แนบ) | — |
 
 ### การทำงานของคำสั่งที่แก้ข้อมูล
 
 ```
-หน้าจอ api.submitClaim(input)
-  → POST /api/rpc {method, args}          ตรวจ Origin, JSON, session cookie → actorId
-  → verifyAttachments()                   ไฟล์แนบต้องเป็นของผู้ใช้ / ใช้ metadata จากฐานข้อมูล
-  → runUnitOfWork()                       เข้าคิว (กันยื่นซ้อนเกินวงเงิน)
-      loadDatabase()                      อ่านข้อมูลจาก Prisma
-      services.submitClaim(actorId, ...)  assertCan → ตรวจกติกา → แก้ข้อมูล → audit() → sendEmail()
-      persistChanges()                    เทียบก่อน–หลัง เขียนเฉพาะแถวที่เปลี่ยนใน transaction เดียว
-  → หน้าจอโหลด /api/state ใหม่             ได้ข้อมูลที่ตัดตามสิทธิ์แล้ว (scopeDatabase)
+หน้าจอ api.verifyClaim(id)                         src/lib/client/api.ts
+  → requireMe()                ผู้ทำรายการมาจาก session (หน้าจอส่งเองไม่ได้)
+  → verifyAttachments()        (เฉพาะยื่น/แก้คำขอ) ไฟล์แนบต้องเป็นของผู้ใช้ — ใช้ metadata จาก IndexedDB
+  → services.verifyClaim(actorId, id)
+      commit(db => ...)        สำเนาข้อมูลล่าสุดจาก localStorage → assertCan → ตรวจกติกา → แก้ → audit() → sendEmail()
+                               ไม่ throw จึงเขียนกลับ localStorage ทั้งก้อน (transaction)
+  → refresh()                  scopeDatabase() ตัดข้อมูลตามบทบาท → อัปเดตหน้าจอ
+  → แท็บอื่นได้ storage event → refresh() เอง
 ```
 
-ข้อดีของรูปแบบนี้: service ทุกตัวเขียนครั้งเดียว ใช้ได้ทั้ง unit test (ในหน่วยความจำ) และฐานข้อมูลจริง และทุกคำสั่งเป็น transaction เดียว — ล้มกลางทางไม่มีข้อมูลค้าง
+service ทุกตัวเขียนแบบ synchronous บน `getDB()/commit()` จึงใช้ได้ทั้งในเบราว์เซอร์ (BrowserStore) และ unit test (MemoryStore) โดยไม่ต้องแก้
 
-## 2. ฐานข้อมูล
+### ย้ายไปมี Backend ภายหลัง
 
-- ค่าเริ่มต้น SQLite (`prisma/dev.db`) — เปลี่ยนเป็น PostgreSQL ได้ด้วย 1 บรรทัดใน schema + `DATABASE_URL` (โค้ดเลือกไดรเวอร์อัตโนมัติ) ดู [GETTING-STARTED.md ข้อ 10](GETTING-STARTED.md#10-เปลี่ยนไปใช้-postgresql-เมื่อพร้อมขึ้นเซิร์ฟเวอร์จริง)
-- ตารางหลัก: `Department`, `Position`, `Employee`, `BenefitType`, `BenefitLimit`, `FundRound`, `Claim`, `Payment`, `ChangeRequest`, `ClaimAttachment`, `ClaimEvent`, `StoredFile`, `Holiday`, `Setting`, `RolePermission`, `AuditLog`, `EmailMessage`, `Counter`
-- Foreign key: พนักงาน→แผนก/ตำแหน่ง(ระดับ)/หัวหน้างาน, วงเงิน→สวัสดิการ, คำขอ→พนักงาน/สวัสดิการ/รอบงบ, การจ่าย/ไฟล์แนบ/ประวัติ→คำขอ
-- วันที่ปฏิทินเก็บเป็นข้อความ `YYYY-MM-DD` (ไม่เพี้ยนตาม timezone), เวลาเก็บเป็น DateTime, เงินเก็บเป็น Decimal
-- ไฟล์แนบอยู่ที่ `storage/uploads/` (แยกจากฐานข้อมูลหลักตาม NFR) — เปลี่ยนเป็น S3/MinIO ได้ที่ `src/lib/server/files.ts`
+1. ย้าย `src/lib/services`, `src/lib/domain`, `src/lib/data/scope.ts` ไปรันบนเซิร์ฟเวอร์ (ไม่ต้องแก้โค้ด)
+2. เขียน `Store` ใหม่ที่อ่าน/เขียนฐานข้อมูลจริง (interface ใน `src/lib/data/db.ts`)
+3. แก้ `src/lib/client/api.ts` ให้เรียก HTTP แทนการเรียกฟังก์ชันตรง — หน้าจอทุกหน้าไม่ต้องเปลี่ยน (ทุกคำสั่งคืน Promise อยู่แล้ว)
 
-## 3. API
+## 2. บทบาท (5 Role)
 
-| Method | Path | หมายเหตุ |
+| Role | หน้าที่หลัก | ห้ามทำ |
 |---|---|---|
-| POST | `/api/auth/login` · `/api/auth/logout` | ออก/ลบ session cookie |
-| GET | `/api/state` | ข้อมูลทั้งหมดที่ผู้ใช้มีสิทธิ์เห็น (ไม่ล็อกอิน = ชื่อองค์กร; รายชื่อบัญชีทดสอบเมื่อ `SHOW_DEMO_ACCOUNTS=true` — หน้าเข้าสู่ระบบไม่แสดง) |
-| POST | `/api/rpc` | `{ method, args }` — รายการคำสั่งทั้งหมดอยู่ใน `src/lib/server/rpc.ts` |
-| POST | `/api/files` | อัปโหลดไฟล์แนบ (multipart: `file`, `docType`) |
-| GET | `/api/files/:id` | เปิดไฟล์แนบ (ตรวจสิทธิ์) |
-| GET | `/api/audit?entity=&entityId=&actor=&from=&to=&q=&limit=&offset=` | ค้นหา Audit Log (บัญชีเห็นเฉพาะด้านการเงิน) |
-| GET | `/api/emails` | กล่องอีเมลขาออก (ผู้ดูแลระบบ) |
+| `employee` พนักงาน | ยื่น/แก้คำขอของตนเอง ติดตามสถานะ | — |
+| `manager` หัวหน้างาน | อนุมัติ/ไม่อนุมัติคำขอของลูกทีม (ขั้นที่ 2), ดูทีม, ตั้งผู้อนุมัติสำรอง | ตรวจเอกสารแทน HR, ดูข้อมูลพนักงานนอกทีม |
+| `hr` HR | ตรวจเอกสาร (ขั้นที่ 1), ข้อมูลพนักงาน/สวัสดิการ/วงเงิน/วันหยุด, ส่งและอนุมัติคำขอแก้ไขของ HR คนอื่น | อนุมัติขั้นสุดท้าย, บันทึกจ่ายเงิน |
+| `finance` บัญชี | รายการรอจ่าย, บันทึกการจ่าย, รายงาน | เห็นชื่อ/เอกสาร/ข้อมูลสุขภาพ, อนุมัติ |
+| `admin` ผู้ดูแลระบบ | ผู้ใช้/Role, RBAC, Audit Log, ตั้งค่า, สำรองข้อมูล | อนุมัติ, จ่ายเงิน |
 
-คำสั่งใน `/api/rpc`: `validateClaim, submitClaim, updateClaim, approveClaim, rejectClaim, returnClaim, recordPayment, requestClaimChange, requestLimitChange, reviewChange, createEmployee, updateEmployee, setEmployeeActive, saveDepartment, deleteDepartment, savePosition, deletePosition, saveBenefit, saveFundRound, updatePayrollSettings, updateSystemSettings, setRolePermission, setUserRole, resetPassword, changeOwnPassword, exportBackup, restoreBackup, resetDemo`
+## 3. Workflow คำขอเบิก
 
-## 4. ความปลอดภัย
+| สถานะ | ความหมาย | ผู้ดำเนินการต่อ |
+|---|---|---|
+| `pending_hr` | ขั้นที่ 1 รอ HR ตรวจเอกสาร | HR: ส่งหัวหน้า / ส่งกลับ / ไม่อนุมัติ · ผู้ยื่น: แก้ไขได้ |
+| `returned` | HR ส่งกลับให้ผู้ยื่นแก้ไข | ผู้ยื่น: แก้แล้วส่งใหม่ → `pending_hr` |
+| `pending_manager` | ขั้นที่ 2 HR ตรวจผ่าน รอหัวหน้าอนุมัติ | หัวหน้างาน/ผู้อนุมัติสำรอง: อนุมัติ / ไม่อนุมัติ |
+| `approved` | อนุมัติแล้ว รอจ่าย (มีวันจ่าย) | บัญชี: บันทึกการจ่าย · HR: ขอแก้ผล (Maker–Checker) |
+| `rejected` | ไม่อนุมัติ — คืนสิทธิ์/วงเงิน | HR: ขอแก้ผล (Maker–Checker) |
+| `paid` | จ่ายแล้ว | — |
+
+ลำดับที่อนุญาตอยู่ใน `TRANSITIONS` (`src/lib/domain/rules.ts`) · คำสั่ง: `verifyClaim`, `returnClaim`, `approveClaim`, `rejectClaim`, `setDelegation`, `recordPayment` (`src/lib/services/claims.ts`)
+
+### สายอนุมัติ (`src/lib/services/approval.ts`)
+
+- `resolveApprover(db, ผู้ยื่น, HR ผู้ตรวจ)` — ไล่ `supervisorId` ขึ้นไปจนเจอคนที่ทำงานอยู่ + มีสิทธิ์ `claim.approve` + ไม่ใช่ผู้ยื่น/ผู้ตรวจ → `supervisor` (หัวหน้าตรง) หรือ `escalated` (ข้ามขึ้นไป) · ไม่เจอ → หัวหน้างานที่ตำแหน่งระดับสูงสุดคนอื่น (`fallback`)
+- HR กดส่งต่อ → บันทึก `approverId` · ถ้าผู้อนุมัติลาออก/ถูกถอดสิทธิ์ระหว่างรอ `effectiveApprover()` คำนวณใหม่อัตโนมัติ
+- ผู้อนุมัติสำรอง: `Employee.delegation = { toId, from, to }` มีผลเฉพาะในช่วงวันที่ · ผู้รับมอบต้องมีสิทธิ์อนุมัติ
+- กดอนุมัติแล้วหน้าจอถามยืนยันซ้ำ ("ต้องการอนุมัติคำขอนี้จริงหรือไม่?") พร้อมยอดเงินและวันเงินเข้า · วันจ่ายคำนวณจากวันที่หัวหน้าอนุมัติ
+
+## 4. ที่เก็บข้อมูล
+
+| ที่เก็บ | คีย์ | หมายเหตุ |
+|---|---|---|
+| localStorage | `hr-benefits:db` | `Database` ทั้งก้อน (`src/lib/domain/types.ts`) มี `version` — เวอร์ชันไม่ตรง/ข้อมูลเสีย → เริ่มข้อมูลตัวอย่างใหม่ |
+| localStorage | `hr-benefits:session` | `{ uid, exp, pv }` · `pv` = hash ของรหัสผ่านปัจจุบัน (เปลี่ยนรหัส = session เดิมใช้ไม่ได้) |
+| IndexedDB | `hr-benefits-files` / `files` | `{ id, uploaderId, name, type, size, blob }` · ตรวจชนิดไฟล์จาก magic bytes, ≤ 5 MB |
+
+- วันที่ปฏิทินเก็บเป็นข้อความ `YYYY-MM-DD` (ไม่เพี้ยนตาม timezone), เวลาเป็น ISO 8601
+- รหัสผ่าน: PBKDF2-SHA256 + salt (`src/lib/security/hash.ts`)
+- พื้นที่เต็ม (QuotaExceededError) → แจ้งข้อความภาษาไทย ไม่บันทึกครึ่งทาง
+
+## 5. ความปลอดภัย
 
 ทำแล้ว ✅
-- [x] Service layer รันฝั่งเซิร์ฟเวอร์เท่านั้น, ตรวจ RBAC ทุกคำสั่ง
-- [x] Row-level: พนักงานเห็นเฉพาะของตนเอง, HR เห็นคำขอทั้งหมด, บัญชีเห็นเฉพาะยอดเงิน/รหัสพนักงาน/เลขใบเสร็จ, Audit Log เฉพาะผู้ดูแลระบบ (`scope.ts`)
-- [x] รหัสผ่าน: scrypt + salt, ล็อกอินผิด 5 ครั้งล็อก 15 นาที · ปุ่มที่เกี่ยวกับเงินมีกล่องยืนยันเลขคำขอ + ยอดเงิน · หัวหน้า HR อนุมัติคำขอแก้ไขของตัวเองต้องใส่รหัสผ่านซ้ำ (บันทึก `selfApproved`)
-- [x] Session HttpOnly + HMAC, หมดอายุ 8 ชม., ยกเลิกเมื่อเปลี่ยนรหัสผ่าน, Secure อัตโนมัติบน HTTPS
-- [x] ไฟล์แนบ: ตรวจ magic bytes, 5 MB, ตรวจสิทธิ์ก่อนเปิด, ส่งพร้อม CSP sandbox + nosniff
-- [x] CSRF: SameSite=Lax + ตรวจ Origin + บังคับ JSON
-- [x] Audit Log: ระบบมีแต่การเพิ่ม (ไม่มีหน้าจอ/คำสั่งแก้หรือลบ)
+- [x] RBAC ทุกคำสั่งใน service layer + สิทธิ์ต้องห้ามตาม Least Privilege (`FORBIDDEN_PERMISSIONS`)
+- [x] แยกผู้ตรวจ (HR) กับผู้อนุมัติ (หัวหน้างาน) · ตรวจ/อนุมัติคำขอตัวเองไม่ได้
+- [x] ตัดข้อมูลตามบทบาท (`scope.ts`): พนักงานเห็นของตัวเอง, หัวหน้าเห็นเฉพาะทีม, บัญชีไม่เห็นชื่อ/เอกสาร/หมายเหตุ (PDPA), ไม่ส่ง password hash ไปหน้าจอ
+- [x] Audit Log แบบเพิ่มอย่างเดียว ไม่บันทึกข้อมูลสุขภาพ · ปุ่มที่เกี่ยวกับเงินมีกล่องยืนยันเลขคำขอ + ยอดเงิน
+- [x] ล็อกการเข้าสู่ระบบผิด 5 ครั้ง/15 นาที (ต่อแท็บ)
 
-ควรทำเพิ่มก่อนใช้งานจริง
-- [ ] PostgreSQL: `REVOKE UPDATE, DELETE ON "AuditLog"` จาก user ของแอป
-- [ ] ล้าง Audit Log ที่เกิน `auditRetentionDays` ด้วย job ประจำ (ตอนนี้เก็บไว้ทั้งหมด)
-- [ ] เข้ารหัสดิสก์ที่เก็บไฟล์แนบ/ฐานข้อมูล, สำรองข้อมูลอัตโนมัติรายวัน + ทดสอบกู้คืน
-- [ ] ส่งอีเมลจริงผ่าน SMTP/SES แบบคิว (retry ได้)
+ข้อจำกัดของเวอร์ชัน localStorage ⚠️
+- ทุกอย่างทำงานในเบราว์เซอร์ ผู้ใช้ที่เปิด DevTools อ่าน/แก้ localStorage ได้ — การตรวจสิทธิ์จึงเป็นการแยกหน้าที่ระดับหน้าจอ ไม่ใช่การป้องกันข้อมูลระดับเซิร์ฟเวอร์
+- ก่อนใช้งานจริงหลายผู้ใช้: ย้าย service layer ไปเซิร์ฟเวอร์ (หัวข้อ 1) + HTTPS + session cookie แบบ HttpOnly
 
-## 5. เรื่องที่ต้องยืนยัน
-
-ค่าตั้งต้นในระบบเป็นสมมติฐาน (ตรงกับคำถามในสไลด์ "การทดสอบและเรื่องที่ต้องยืนยัน") — ทั้งหมดปรับได้จากหน้าจอ ไม่ต้องแก้โค้ด ยกเว้นข้อที่ระบุ
+## 6. เรื่องที่ต้องยืนยัน
 
 | คำถาม | ค่าที่ตั้งไว้ | ปรับที่ |
 |---|---|---|
-| ลำดับอนุมัติของแต่ละสวัสดิการ | HR อนุมัติขั้นเดียว (HR อนุมัติของตัวเองไม่ได้) · แก้ผลหลังตัดสินต้องผ่านหัวหน้า HR | โค้ด: `TRANSITIONS` ใน `rules.ts` |
-| วงเงินตามระดับตำแหน่ง | 4 ระดับ (ตัวอย่าง: ค่ารักษา L1-2 20,000 / L3 40,000 / L4 80,000) · ย้ายตำแหน่งกลางปีใช้วงเงินระดับใหม่ ยอดที่ใช้แล้วนับต่อ | `/hr/limits` (ผ่านหัวหน้า HR) |
-| วันตัดรอบและวันจ่าย | อนุมัติภายในวันที่ 5 → จ่ายสิ้นเดือน | `/hr/payroll` |
-| ใครแก้ไขคำขอได้ | เจ้าของคำขอเท่านั้น (ไม่มีการยื่นแทน) แก้ได้ก่อน HR ตรวจหรือเมื่อถูกส่งกลับ | โค้ด: `claims.ts` |
+| ลำดับอนุมัติของแต่ละสวัสดิการ | ทุกสวัสดิการ: HR ตรวจเอกสาร → หัวหน้างานของผู้ยื่นอนุมัติ · แก้ผลหลังตัดสินต้องผ่าน HR อีกคน (Maker–Checker) | โค้ด: `TRANSITIONS` (`rules.ts`), `resolveApprover` (`approval.ts`) |
+| ผู้อนุมัติเมื่อไม่มีหัวหน้า | หัวหน้างานระดับสูงสุดคนอื่น | `approval.ts` |
+| วงเงินตามระดับตำแหน่ง | 4 ระดับ · ย้ายตำแหน่งกลางปีใช้วงเงินระดับใหม่ ยอดที่ใช้แล้วนับต่อ | `/hr/limits` (ผ่าน HR อีกคน) |
+| วันตัดรอบและวันจ่าย | หัวหน้าอนุมัติภายในวันที่ 5 → จ่ายสิ้นเดือน (ตรงวันหยุดเลื่อนเป็นวันทำการก่อนหน้า) | `/hr/payroll` |
+| ใครแก้ไขคำขอได้ | เจ้าของคำขอ ก่อน HR ตรวจ หรือเมื่อถูกส่งกลับ (ส่งถึงหัวหน้าแล้วแก้ไม่ได้) | `claims.ts` |
+| HR ยื่นแทนพนักงาน | ยังไม่เปิด (สไลด์ Use Case ตัดออกตามคำแนะนำ) | — |
 | เก็บ Audit Log นานเท่าใด | 1,825 วัน (5 ปี) | `/admin/settings` |
-| วันหยุดบริษัท | วันหยุดราชการไทยปี 2569 (ตัวอย่าง — วันทางจันทรคติควรตรวจกับประกาศจริง) | `/hr/payroll` |
 
-## 6. การทดสอบ
+## 7. การทดสอบ
 
-- `npm test` — 54 tests (รวม 7 tests กับฐานข้อมูล SQLite จริงที่ใช้ migration ทุกตัว): วันจ่ายเงิน, วงเงินตามระดับ (`resolveLimit`), ตัดยอด `computeApproved` (1,500 → 1,000), ครบ 30 ครั้ง, คืนสิทธิ์, ใบเสร็จซ้ำ, ข้อมูลการจ่ายตามวิธี, ลำดับสถานะ, เมนูตามบทบาท, HR อนุมัติของตัวเองไม่ได้, audit ก่อน–หลัง/ไม่มีข้อมูลสุขภาพ, Maker–Checker (ไม่อนุมัติ → ขอแก้ → หัวหน้า HR อนุมัติ), ติดตามใบเสร็จ 1 ใบตั้งแต่ยื่นจนจ่าย
-- ทดสอบ E2E ด้วยเบราว์เซอร์กับฐานข้อมูลจริง: พนักงานยื่น + อัปโหลดไฟล์ → HR อนุมัติ (กล่องยืนยันยอด) → บัญชีบันทึกการจ่าย (บังคับเลขเช็ค/เลขอ้างอิง) → ผู้ดูแลระบบเห็น Audit Log ครบ → รีสตาร์ทเซิร์ฟเวอร์แล้วข้อมูลยังอยู่
-- ทดสอบความปลอดภัย API 26 กรณี (ข้ามสิทธิ์, CSRF, ไฟล์ปลอม, รั่วข้อมูล, session หลังเปลี่ยนรหัสผ่าน)
+- `npm test` — 62 tests: มีเพียง 5 บทบาท, วันจ่ายเงิน, วงเงินตามระดับ, ตัดยอด 1,500 → 1,000, ครบ 30 ครั้ง, คืนสิทธิ์, ใบเสร็จซ้ำ, **flow 2 ขั้นและข้ามขั้นไม่ได้**, **สายอนุมัติ (หัวหน้าตรง/ข้ามขึ้น/ไม่มีหัวหน้า/หัวหน้าลาออก)**, **ผู้อนุมัติสำรอง**, scope ของหัวหน้างาน, Maker–Checker (ผู้ขอพิจารณาเองไม่ได้), audit ก่อน–หลัง, **localStorage: บันทึก/โหลดใหม่/สองแท็บไม่ทับกัน/พื้นที่เต็ม**
+- ทดสอบ E2E ด้วยเบราว์เซอร์กับ static build: พนักงานยื่น + อัปโหลดไฟล์ → HR ตรวจผ่าน (เห็นชื่อผู้อนุมัติ) → หัวหน้าอนุมัติ (รหัสผิดถูกปฏิเสธ, เห็นวันเงินเข้า) → บัญชีเห็นรายการรอจ่าย → รีโหลดข้อมูลยังอยู่ · มุมมองมือถือ

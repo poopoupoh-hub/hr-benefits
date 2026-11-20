@@ -2,7 +2,8 @@
  * Domain types — โครงสร้างข้อมูลหลักของระบบ (type กลาง ใช้ร่วมกันทั้ง UI / service / ฐานข้อมูล)
  */
 
-export type Role = "employee" | "hr" | "hr_head" | "finance" | "admin";
+/** manager = หัวหน้างาน/หัวหน้าฝ่าย ผู้อนุมัติคำขอของลูกทีม (ขั้นสุดท้าย) หลัง HR ตรวจเอกสารแล้ว */
+export type Role = "employee" | "manager" | "hr" | "finance" | "admin";
 
 /** ประเภทพนักงาน — ใช้กำหนดสิทธิ์สวัสดิการ */
 export type EmploymentType = "permanent" | "probation" | "contract" | "terminated";
@@ -39,10 +40,21 @@ export interface Employee {
   contractEndDate?: ISODate | null;
   role: Role;
   active: boolean;
-  /** scrypt hash */
+  /** ผู้อนุมัติสำรองเมื่อไม่อยู่ (เฉพาะผู้มีสิทธิ์อนุมัติ) */
+  delegation?: Delegation | null;
+  /** PBKDF2 hash */
   passwordHash: string;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+}
+
+/** มอบหมายผู้อนุมัติสำรอง — มีผลเฉพาะช่วงวันที่ from–to (รวมทั้งสองวัน) */
+export interface Delegation {
+  toId: string;
+  from: ISODate;
+  to: ISODate;
+  note?: string;
+  setAt: ISODateTime;
 }
 
 /** โหมดของสวัสดิการ: พนักงานแจ้งยอดเอง หรือ HR กำหนดเงินช่วยเหลือ (เช่น งบภัยพิบัติ) */
@@ -97,8 +109,9 @@ export interface FundRound {
 }
 
 export type ClaimStatus =
-  | "pending_hr" // รอ HR ตรวจ
-  | "returned" // ส่งกลับแก้ไข
+  | "pending_hr" // ขั้นที่ 1: รอ HR ตรวจเอกสาร/คุณสมบัติ
+  | "pending_manager" // ขั้นที่ 2: HR ตรวจผ่านแล้ว รอหัวหน้างานอนุมัติ
+  | "returned" // ส่งกลับแก้ไข (HR ส่งกลับให้ผู้ยื่น)
   | "rejected" // ไม่อนุมัติ (คืนสิทธิ์)
   | "approved" // อนุมัติแล้ว รอจ่าย
   | "paid"; // จ่ายแล้ว
@@ -112,7 +125,7 @@ export interface AttachmentMeta {
   uploadedAt: ISODateTime;
 }
 
-export type ClaimAction = "submit" | "resubmit" | "edit" | "approve" | "reject" | "return" | "mark_paid" | "change_result";
+export type ClaimAction = "submit" | "resubmit" | "edit" | "verify" | "approve" | "reject" | "return" | "mark_paid" | "change_result";
 
 export interface ClaimEvent {
   at: ISODateTime;
@@ -142,7 +155,12 @@ export interface Claim {
   attachments: AttachmentMeta[];
   status: ClaimStatus;
   submittedAt: ISODateTime;
-  /** ผู้พิจารณา (อนุมัติ / ไม่อนุมัติ) และเวลา */
+  /** HR ผู้ตรวจเอกสาร (ขั้นที่ 1) และเวลา */
+  verifiedById?: string | null;
+  verifiedAt?: ISODateTime | null;
+  /** หัวหน้างานผู้อนุมัติที่ระบบกำหนดตอน HR ส่งต่อ (ขั้นที่ 2) */
+  approverId?: string | null;
+  /** ผู้ตัดสินผลสุดท้าย (อนุมัติ / ไม่อนุมัติ) และเวลา */
   decidedById?: string | null;
   decidedAt?: ISODateTime | null;
   /** วันจ่ายเงินที่คำนวณ */
@@ -170,7 +188,7 @@ export interface Payment {
 export type ChangeRequestKind = "claim_status" | "benefit_limit";
 export type ChangeRequestStatus = "pending" | "approved" | "rejected";
 
-/** คำขอแก้ไข (Maker–Checker): HR ขอ → หัวหน้า HR อนุมัติจึงมีผล */
+/** คำขอแก้ไข (Maker–Checker): HR คนหนึ่งขอ → HR อีกคนอนุมัติจึงมีผล (ผู้ขอกับผู้อนุมัติต้องไม่ใช่คนเดียวกัน) */
 export interface ChangeRequest {
   id: string;
   kind: ChangeRequestKind;
@@ -185,7 +203,6 @@ export interface ChangeRequest {
   reviewedBy?: string | null;
   reviewedAt?: ISODateTime | null;
   reviewNote?: string | null;
-  selfApproved?: boolean;
 }
 
 export interface Holiday {
@@ -232,6 +249,7 @@ export interface AuditLog {
     | "department"
     | "position"
     | "fund"
+    | "delegation"
     | "auth"
     | "system";
   entityId: string | null;
@@ -254,6 +272,8 @@ export interface EmailMessage {
 export type Permission =
   | "self.claim"
   | "claim.review"
+  | "claim.approve"
+  | "team.view"
   | "change.request"
   | "change.review"
   | "employee.view"

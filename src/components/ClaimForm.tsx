@@ -37,7 +37,7 @@ export function ClaimForm({ editing, onDone, initialBenefitId }: { initialBenefi
     ? { benefitTypeId: benefit.id, receiptNo, vendorName, amountRequested: Number(amount) || 0, receiptDate, note, attachments, fundRoundId: editing?.fundRoundId }
     : null;
 
-  // ตรวจกติกาทันที — เซิร์ฟเวอร์เป็นผู้ตรวจ (ข้อมูลล่าสุด) แบบ debounce
+  // ตรวจกติกาทันที — service layer ตรวจกับข้อมูลล่าสุด แบบ debounce
   const key = input ? JSON.stringify([benefitId, receiptNo, vendorName, amount, receiptDate, attachments.map((a) => [a.id, a.docType]), db.claims.length]) : "";
   const [checked, setChecked] = useState<{ key: string; benefitId: string; result: ClaimValidation } | null>(null);
   useEffect(() => {

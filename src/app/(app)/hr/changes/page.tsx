@@ -23,7 +23,7 @@ const num = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString("th-TH
 const limitText = (v: Record<string, unknown>) =>
   Object.keys(v).length ? `ระดับ ${v.minLevel}–${v.maxLevel} · ต่อครั้ง ${num(v.perClaim)} · ต่อปี ${num(v.perYear)} · ${num(v.maxCount)} ครั้ง` : "ยังไม่มีวงเงิน";
 
-/** คำขอแก้ไข (Maker–Checker) — หัวหน้า HR เห็นกล่อง "รออนุมัติการแก้ไข" */
+/** คำขอแก้ไข (Maker–Checker) — HR คนหนึ่งส่งคำขอ HR อีกคนอนุมัติ (พิจารณาคำขอของตนเองไม่ได้) */
 export default function ChangesPage() {
   const db = useDB();
   const me = useMe()!;
@@ -31,7 +31,6 @@ export default function ChangesPage() {
   const act = useAction();
   const reviewer = can("change.review");
   const [action, setAction] = useState<{ cr: ChangeRequest; approve: boolean } | null>(null);
-  const [password, setPassword] = useState("");
   const [note, setNote] = useState("");
 
   const pending = db.changeRequests.filter((r) => r.status === "pending");
@@ -92,10 +91,10 @@ export default function ChangesPage() {
         <p className="mt-1 text-[11px] text-zinc-400">
           ขอโดย {fullName(db.employees.find((e) => e.id === cr.requestedBy))} · {dateTimeTH(cr.requestedAt)}
           {cr.reviewedBy && ` · พิจารณาโดย ${fullName(db.employees.find((e) => e.id === cr.reviewedBy))} ${cr.reviewedAt ? dateTimeTH(cr.reviewedAt) : ""}`}
-          {cr.selfApproved && " · อนุมัติคำขอของตนเอง (ยืนยันรหัสผ่านแล้ว)"}
         </p>
         {cr.reviewNote && <p className="mt-1 text-xs text-zinc-600">หมายเหตุผู้พิจารณา: {cr.reviewNote}</p>}
-        {reviewer && cr.status === "pending" && (
+        {reviewer && cr.status === "pending" && cr.requestedBy === me.id && <p className="mt-3 text-xs text-zinc-500">คำขอของคุณ — รอ HR คนอื่นพิจารณา</p>}
+        {reviewer && cr.status === "pending" && cr.requestedBy !== me.id && (
           <div className="mt-3 flex gap-2 [&>*]:flex-1">
             <Button variant="outline-danger" onClick={() => open(cr, false)}>
               ปฏิเสธ
@@ -111,15 +110,13 @@ export default function ChangesPage() {
 
   const open = (cr: ChangeRequest, approve: boolean) => {
     setAction({ cr, approve });
-    setPassword("");
     setNote("");
   };
-  const self = action?.cr.requestedBy === me.id;
   const d = action ? describe(action.cr) : null;
 
   return (
-    <Page title={reviewer ? "รออนุมัติการแก้ไข" : "คำขอแก้ไข"} perm="change.request" wide>
-      {!reviewer && <Alert tone="info" className="mb-4">คำขอแก้ผล / แก้วงเงิน จะมีผลเมื่อหัวหน้า HR อนุมัติ</Alert>}
+    <Page title="คำขอแก้ไข" perm="change.request" wide>
+      <Alert tone="info" className="mb-4">คำขอแก้ผล / แก้วงเงิน จะมีผลเมื่อ HR อีกคนอนุมัติ — ผู้ส่งคำขอพิจารณาคำขอของตนเองไม่ได้ (Maker–Checker)</Alert>
       <SectionTitle>รออนุมัติ ({pending.length})</SectionTitle>
       <div className="grid gap-3 lg:grid-cols-2">
         {pending.map((cr) => (
@@ -154,16 +151,10 @@ export default function ChangesPage() {
         }
         confirmLabel={action?.approve ? "ยืนยันอนุมัติ" : "ยืนยันปฏิเสธ"}
         tone={action?.approve ? "success" : "danger"}
-        disabled={!!(action?.approve && self && !password)}
         onConfirm={() =>
-          act(() => api.reviewChange(action!.cr.id, action!.approve, { password, note }), action!.approve ? "อนุมัติแล้ว — มีผลทันที" : "ปฏิเสธคำขอแก้ไขแล้ว").then((ok) => !!ok)
+          act(() => api.reviewChange(action!.cr.id, action!.approve, { note }), action!.approve ? "อนุมัติแล้ว — มีผลทันที" : "ปฏิเสธคำขอแก้ไขแล้ว").then((ok) => !!ok)
         }
       >
-        {action?.approve && self && (
-          <Field label="นี่คือคำขอของคุณเอง — ยืนยันรหัสผ่าน" required hint="ระบบจะบันทึกว่าอนุมัติคำขอของตนเอง (selfApproved)">
-            <Input type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
-          </Field>
-        )}
         <Field label="หมายเหตุผู้พิจารณา (ถ้ามี)">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
