@@ -93,7 +93,7 @@ function BenefitForm({ initial, onClose }: { initial: BenefitType | null; onClos
           </Select>
         </Field>
         {initial ? (
-          <Alert tone="info">วงเงินแก้ที่เมนู &quot;วงเงินตามระดับ&quot; — ต้องส่งคำขอให้ HR คนอื่นอนุมัติก่อนมีผล</Alert>
+          <Alert tone="info">วงเงินแก้ที่เมนู &quot;วงเงินตามระดับ&quot; — ต้องส่งคำขอให้หัวหน้า HR อนุมัติก่อนมีผล</Alert>
         ) : (
           <div>
             <p className="mb-2 text-[13px] font-medium">วงเงินเริ่มต้น (ทุกระดับ 1–4 — แยกตามระดับภายหลังได้ที่เมนูวงเงินตามระดับ)</p>
@@ -203,7 +203,7 @@ export default function BenefitsPage() {
         <Link href="/hr/limits" className="font-medium underline">
           วงเงินตามระดับ
         </Link>{" "}
-        (ต้องให้ HR คนอื่นอนุมัติ)
+        (ต้องให้หัวหน้า HR อนุมัติ)
       </Alert>
       <div className="grid gap-3 lg:grid-cols-2">
         {db.benefitTypes.map((b) => (

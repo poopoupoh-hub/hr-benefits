@@ -12,7 +12,7 @@ import { LogoMark, ORG_NAME } from "./Logo";
 import { HOME_BY_ROLE, NAV, type NavItem } from "./nav";
 import { Avatar, Badge, Button, Empty, Modal } from "./ui";
 
-const ROOTS = new Set(["/me", "/hr", "/manager", "/admin", "/finance"]);
+const ROOTS = new Set(["/me", "/hr", "/admin", "/finance"]);
 function isActive(pathname: string, href: string) {
   if (ROOTS.has(href)) return pathname === href;
   return pathname === href || pathname.startsWith(href + "/");

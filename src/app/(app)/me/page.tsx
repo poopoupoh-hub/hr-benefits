@@ -9,8 +9,7 @@ import { CLAIM_FILTERS, EMPLOYMENT_TYPE_LABEL, type ClaimFilterKey } from "@/lib
 import { beYear, todayLocal, yearOf } from "@/lib/domain/dates";
 import { eligibility, entitlementOf, levelOf } from "@/lib/domain/rules";
 import { cx, money } from "@/lib/format";
-import { useCan, useDB, useMe } from "@/lib/hooks";
-import { approvalQueue } from "@/lib/services/approval";
+import { useDB, useMe } from "@/lib/hooks";
 
 const CARD_TONE: Record<ClaimFilterKey, string> = {
   all: "text-ink-900",
@@ -32,8 +31,6 @@ export default function MyHome() {
   const pos = db.positions.find((p) => p.id === me.positionId);
   const returned = mine.filter((c) => c.status === "returned");
   const ctx = { claims: db.claims, limits: db.benefitLimits, positions: db.positions };
-  const can = useCan();
-  const toApprove = can("claim.approve") ? approvalQueue(db, me).length : 0;
 
   return (
     <Page title={`สวัสดี, ${me.firstName}`} perm="self.claim">
@@ -43,14 +40,6 @@ export default function MyHome() {
         </p>
         <p className="mt-1 text-lg font-semibold">สวัสดิการปี {beYear(year)}</p>
       </div>
-
-      {toApprove > 0 && (
-        <Link href="/manager">
-          <Alert tone="info" className="mt-4">
-            มีคำขอของลูกทีมรอคุณอนุมัติ {toApprove} รายการ — แตะเพื่อพิจารณา
-          </Alert>
-        </Link>
-      )}
 
       {returned.length > 0 && (
         <Link href={`/claim?id=${returned[0].id}`}>
